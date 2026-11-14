@@ -14,7 +14,8 @@ agent is mounted under its own name:
 | `omp` | `/omp` | omp, oh-my-pi (`omp -p`) | scaffold, off by default |
 
 The Gobi app takes one **address** per worker. With the gateway, each agent's address is `https://<your-domain>/<agent>`,
-for example `https://you.ngrok.app/claude`. All agents can sit behind the same tunnel and token.
+for example `https://my-mac.tail1234.ts.net/claude` behind Tailscale Funnel. All agents can sit behind the same tunnel
+and token; [Quick start](#quick-start) sets one up with Tailscale Funnel or Cloudflare Tunnel.
 
 ## The A2A protocol
 
@@ -53,19 +54,67 @@ about 100 lines, on the open-source A2A SDK alone, and `tests/test_protocol.py` 
 
 ## Quick start
 
+**1. Install and configure.**
+
 ```sh
-git clone <this repo> gobi-a2a && cd gobi-a2a
+git clone https://github.com/gobi-ai/gobi-a2a && cd gobi-a2a
 uv sync                                   # or: uv venv && uv pip install -e .
 cp a2a.example.yaml a2a.yaml              # a2a.yaml is git-ignored: it is yours
 export A2A_TOKEN=$(.venv/bin/gobi-a2a token)    # Gobi presents this; keep it
-export A2A_PUBLIC_URL=https://<your-domain>     # the tunnel's URL, below
-.venv/bin/gobi-a2a                        # listens on 127.0.0.1:8000
-
-ngrok http --url=<your-domain> 8000       # in another terminal; or a Cloudflare Tunnel
 ```
 
-Then, in the Gobi app under **Workers**, add `https://<your-domain>/claude` and the token. Do the same for each other
-agent you enable (`/cursor`, `/aider`, `/omp`), with the same token unless you gave that agent its own.
+**2. Give the gateway a public https address.** Gobi's harness runs in the cloud and only calls public `https://`
+addresses, so port 8000 on this machine needs a tunnel. Pick one:
+
+**Tailscale Funnel (recommended): a permanent HTTPS address on your tailnet.**
+
+```sh
+tailscale funnel --bg 8000                # https://<machine>.<tailnet>.ts.net -> localhost:8000, kept running
+tailscale funnel status                   # prints the address
+```
+
+- The address is your machine's MagicDNS name, with a real certificate, and it **never changes**, so the worker's
+  address in the Gobi app stays valid across restarts and reboots.
+- The first run asks you to turn on HTTPS and Funnel for the tailnet (one click in the admin console). `--bg` keeps it
+  up until `tailscale funnel --bg 8000 off`. Without `--bg` it runs in the foreground, exactly `tailscale funnel 8000`.
+- Funnel is the public half of Tailscale. The machine stays on your private tailnet, so you can also reach the
+  gateway from your other devices at the same name. `tailscale serve --bg 8000` exposes it to the tailnet **only**:
+  fine for your own A2A clients, but Gobi cannot reach a tailnet-only address.
+
+**Cloudflare Tunnel: free, no account, no interstitial pages.**
+
+```sh
+cloudflared tunnel --url http://localhost:8000    # prints https://<random-words>.trycloudflare.com
+```
+
+- Nothing to sign up for, nothing to pay, and no browser warning page in front of your agents (unlike ngrok's free
+  plan): the Agent Card and every call reach the gateway as sent.
+- This *quick tunnel* gets a new random address each time it starts, so update `A2A_PUBLIC_URL` and the worker's
+  address in the app after each restart. Quick tunnels also do not carry Server-Sent Events, so `SendStreamingMessage`
+  and `SubscribeToTask` will not work through one. The Gobi harness only polls, so it does not need them.
+- For a fixed address on your own domain, with streaming, use a
+  [named tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/) instead
+  (also free).
+
+Any other https tunnel works the same way, ngrok included.
+
+**3. Start the gateway** with the address from step 2:
+
+```sh
+export A2A_PUBLIC_URL=https://<machine>.<tailnet>.ts.net   # or https://<random-words>.trycloudflare.com
+.venv/bin/gobi-a2a                                         # listens on 127.0.0.1:8000
+```
+
+From another terminal, check it end to end through the tunnel. The card is public and names
+`$A2A_PUBLIC_URL/claude/` as where to send work:
+
+```sh
+curl -s https://<machine>.<tailnet>.ts.net/claude/.well-known/agent-card.json
+```
+
+**4. Add the agents in Gobi.** In the Gobi app under **Workers**, add `<A2A_PUBLIC_URL>/claude` (for example
+`https://my-mac.tail1234.ts.net/claude`) and the token. Do the same for each other agent you enable (`/cursor`,
+`/aider`, `/omp`), with the same token unless you gave that agent its own.
 
 Claude Code signs in as it does on this machine (`ANTHROPIC_API_KEY`, or its own login), and the run's cost is on that
 account. The CLI agents sign in the same way their programs do on this machine.
@@ -161,7 +210,7 @@ The gateway starts even if a program is not installed. It logs a warning, and th
 The harness (`gobi-harness/engine/a2a.py`) is given an address and nothing else:
 
 1. It reads the **Agent Card** at `<address>/.well-known/agent-card.json`, for example
-   `https://you.ngrok.app/claude/.well-known/agent-card.json`. Cards are **public**, so the harness can read one before
+   `https://my-mac.tail1234.ts.net/claude/.well-known/agent-card.json`. Cards are **public**, so the harness can read one before
    it has a credential. Each card declares HTTP Bearer, so the app asks for the token.
 2. It sends work to the JSON-RPC URL the card names. The gateway always names `<public_url>/<agent>/` (with the
    trailing slash, because the harness does not follow redirects). Each brief is one A2A message (protocol 1.0,
@@ -171,8 +220,8 @@ The harness (`gobi-harness/engine/a2a.py`) is given an address and nothing else:
    the harness adds it to the worker's use.
 
 `public_url` must therefore be the URL the harness actually reaches, meaning your tunnel's `https://` URL. The harness
-only talks to public https addresses. If the tunnel URL changes (a free ngrok URL changes on each restart), update
-`A2A_PUBLIC_URL`, restart, and edit the worker's address in the app.
+only talks to public https addresses. A Tailscale Funnel address never changes. If yours does (a Cloudflare quick tunnel gets a new one on each
+start), update `A2A_PUBLIC_URL`, restart, and edit the worker's address in the app.
 
 The exact calls, headers and limits the harness uses (60 s per call, 2 MB per answer, polling every 2 to 15 s) are in
 [docs/protocol.md §12.1](docs/protocol.md#121-what-a-gobi-harness-needs-from-an-agent).

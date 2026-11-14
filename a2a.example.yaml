@@ -5,7 +5,7 @@
 # key out. Relative paths are relative to this file's folder.
 
 gateway:
-  host: 127.0.0.1                 # behind ngrok / a tunnel, 127.0.0.1 is enough; 0.0.0.0 to listen on every interface
+  host: 127.0.0.1                 # behind a tunnel (Tailscale Funnel, Cloudflare Tunnel), 127.0.0.1 is enough; 0.0.0.0 to listen on every interface
   port: 8000
   public_url: ${A2A_PUBLIC_URL}   # the tunnel's https URL; Agent Cards name it. Unset: http://host:port
   token: ${A2A_TOKEN}             # the bearer token Gobi presents: `gobi-a2a token` makes one

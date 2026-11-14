@@ -3,7 +3,7 @@
     gateway:
       host: 127.0.0.1
       port: 8000
-      public_url: https://you.ngrok.app     # what Agent Cards name; default http://host:port
+      public_url: https://my-mac.tail1234.ts.net # what Agent Cards name; default http://host:port
       token: ${A2A_TOKEN}                   # the bearer token callers present
       no_auth: false                        # true runs without a token: local testing only
       workdir: ./work                       # each agent gets <workdir>/<agent>, each A2A context a folder under that

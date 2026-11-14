@@ -188,7 +188,7 @@ The A2A way to discover an agent is its card.
   "name": "Claude Code",
   "description": "Claude Code working in its own folder: code, files and web research.",
   "supportedInterfaces": [
-    {"url": "https://you.ngrok.app/claude/", "protocolBinding": "JSONRPC", "protocolVersion": "1.0"}
+    {"url": "https://my-mac.tail1234.ts.net/claude/", "protocolBinding": "JSONRPC", "protocolVersion": "1.0"}
   ],
   "version": "1",
   "capabilities": {"streaming": true, "pushNotifications": false},
@@ -298,7 +298,7 @@ interface TaskArtifactUpdateEvent { taskId: string; contextId: string; artifact:
 
 ## 7. Methods
 
-All examples below go to `POST https://you.ngrok.app/claude/` with the headers of §3.1.
+All examples below go to `POST https://my-mac.tail1234.ts.net/claude/` with the headers of §3.1.
 
 ### 7.1 `SendMessage`: create a task, continue a conversation, or steer a task
 
@@ -847,7 +847,7 @@ README's "Adding an agent" has the details.
 ## 14. curl cookbook
 
 ```sh
-A=https://you.ngrok.app/claude                      # an agent's address
+A=https://my-mac.tail1234.ts.net/claude                      # an agent's address
 H=(-H "Authorization: Bearer $A2A_TOKEN" -H "A2A-Version: 1.0" -H "Content-Type: application/json")
 
 # the card (public)

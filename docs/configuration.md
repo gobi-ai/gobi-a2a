@@ -8,7 +8,7 @@ HTTP endpoints. For the wire protocol itself see [protocol.md](protocol.md).
 - [The command](#the-command)
 - [`a2a.yaml`](#a2ayaml)
   - [`claude`](#claude)
-  - [`cursor`, `codex`, `aider`, `omp` (scaffolds)](#cursor-codex-aider-omp-scaffolds)
+  - [`cursor`, `codex`, `omp` (scaffolds)](#cursor-codex-omp-scaffolds)
 - [Model and effort per task](#model-and-effort-per-task)
 - [Endpoints](#endpoints)
 
@@ -75,7 +75,7 @@ gateway can, such as a container or a dedicated machine. To switch it, edit `a2a
 Claude Code signs in as it does on this machine (`ANTHROPIC_API_KEY`, or its own login), and the run's cost is on that
 account.
 
-### `cursor`, `codex`, `aider`, `omp` (scaffolds)
+### `cursor`, `codex`, `omp` (scaffolds)
 
 Each runs its command line program once per task, in that conversation's folder. Each line the program prints is a
 progress note, and what it printed is the result when it exits 0. Any other exit fails the task with the end of its
@@ -86,7 +86,7 @@ stderr. A cancel stops the process (SIGTERM, then SIGKILL).
 | `command` | argv list, never a shell line. `"{prompt}"` is replaced by the task's text; without one, the text is appended as the last argument. Model and effort flags go just before a `--` in it, if it has one |
 | `model`, `model_args` | the default model, and the flags that pass one (`[--model, "{model}"]`), added only when a model is set here or by the message |
 | `effort`, `effort_args` | the same for effort (omp: `[--thinking, "{effort}"]`, codex: `[-c, "model_reasoning_effort={effort}"]`) |
-| `resume_args` | the flags that continue a session (codex: `[resume, "{session}"]`, cursor: `[--resume, "{session}"]`), added for a follow-up in the same conversation; `[]` starts each task afresh |
+| `resume_args` | the flags that continue a session (codex: `[resume, "{session}"]`, cursor and omp: `[--resume, "{session}"]`), added for a follow-up in the same conversation; `[]` starts each task afresh |
 | `timeout` | seconds per run; empty: no limit |
 | `env` | variables added for the run, e.g. `CURSOR_API_KEY: ${CURSOR_API_KEY}` |
 
@@ -99,10 +99,10 @@ The defaults:
   events become progress notes (commands, file changes) and the result (the last message), and its session id is kept
   so a follow-up runs `codex exec resume <session>`. The sandbox lets Codex change files and run commands in the
   conversation's folder, without network; `danger-full-access` lifts it. Codex signs in with `codex login` or `CODEX_API_KEY`.
-- **aider:** `aider --yes-always --no-pretty --no-stream --no-check-update --message <prompt>`. Aider keeps a git repo
-  and its chat history in the folder. Add `--restore-chat-history` to carry a conversation on.
-- **omp:** `omp -p <prompt>`. The flags follow the pi coding agent's CLI. Check `omp --help` and adjust `command`,
-  `model_args` and `effort_args` if your version differs (pi's thinking levels stop at `xhigh`).
+- **omp:** `omp --mode json -- <prompt>`. Its JSON events become progress notes (tool calls) and the result (the last
+  assistant text), and the session id from its first line is kept so a follow-up runs with `--resume <session>`. omp
+  signs in with `omp login` (a ChatGPT, Copilot or Gemini subscription, or an API key) and needs bun. Its thinking
+  levels stop at `xhigh`.
 
 The CLI agents sign in the same way their programs do on this machine. The gateway starts even if a program is not
 installed. It logs a warning, and that agent's tasks fail with "not installed".

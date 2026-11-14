@@ -26,7 +26,7 @@ def test_check_prints_each_agents_address(conf, capsys):
     cli.main(["check", "-c", str(conf)])
     out = capsys.readouterr().out
     assert "https://me.ngrok.app/claude" in out and "https://me.ngrok.app/cursor" in out and "command=cursor-agent" in out
-    assert re.search(r"aider\s+disabled", out) and "bearer token set" in out
+    assert re.search(r"codex\s+disabled", out) and "bearer token set" in out
 
 
 def test_serve_starts_uvicorn_on_the_configs_address_or_the_flags(conf, monkeypatch):
@@ -90,10 +90,10 @@ def test_check_says_what_to_enter_in_the_gobi_app_without_printing_the_token(tmp
 
 def test_check_names_each_agents_own_token_and_warns_when_gobi_cannot_reach_it(tmp_path, capsys):
     p = tmp_path / "a2a.yaml"
-    p.write_text(f"gateway: {{token: {TOKEN}}}\nagents: {{aider: {{enabled: true, token: short}}}}\n")
+    p.write_text(f"gateway: {{token: {TOKEN}}}\nagents: {{codex: {{enabled: true, token: short}}}}\n")
     cli.main(["check", "-c", str(p)])
     out = capsys.readouterr().out
-    assert "http://127.0.0.1:8000/claude  token 3f9c…b7e1" in out and "http://127.0.0.1:8000/aider  token ********" in out
+    assert "http://127.0.0.1:8000/claude  token 3f9c…b7e1" in out and "http://127.0.0.1:8000/codex  token ********" in out
     assert "Bearer token" not in out and "is not https: Gobi only calls public https addresses" in out
 
 

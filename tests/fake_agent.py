@@ -1,4 +1,4 @@
-"""A stand-in for cursor-agent / aider / omp in the tests.
+"""A stand-in for cursor-agent / codex / omp in the tests.
 
 Prints its working folder and its arguments, a line per word of the prompt, then "answer: <prompt>". The prompt
 (argv[1]) steers it: "fail" exits 3 with a message on stderr, "hang" sleeps until killed, "touch" writes a file in its

@@ -18,11 +18,11 @@ def test_the_example_config_loads_with_claude_on_and_the_scaffolds_off():
     gw = cfg.gateway
     assert (gw.host, gw.port, gw.token, gw.url) == ("127.0.0.1", 8000, "t", "https://me.ngrok.app")
     assert gw.workdir == (ROOT / "work").resolve()
-    assert list(cfg.enabled) == ["claude"] and set(cfg.agents) == {"claude", "cursor", "codex", "aider", "omp"}
+    assert list(cfg.enabled) == ["claude"] and set(cfg.agents) == {"claude", "cursor", "codex", "omp"}
     c = cfg.agents["claude"]
     assert (c.model, c.effort, c.thinking, c.permission_mode, c.max_turns) == ("claude-opus-5-5", None, None, "default", None)
     assert "Bash" not in c.allowed_tools
-    assert cfg.agents["aider"].command[0] == "aider" and cfg.agents["omp"].effort_args == ["--thinking", "{effort}"]
+    assert cfg.agents["codex"].command[:2] == ["codex", "exec"] and cfg.agents["omp"].effort_args == ["--thinking", "{effort}"]
 
 
 def test_without_a_public_url_the_cards_name_the_listening_address():
@@ -84,7 +84,7 @@ def test_claudes_settings(tmp_path):
     ({"gateway": {"no_auth": True}, "agents": {"claude": {"model": "opus; rm -rf /"}}}, "agents.claude.model"),
     ({"gateway": {"no_auth": True}, "agents": {"claude": {"max_turns": -1}}}, "agents.claude.max_turns"),
     ({"gateway": {"no_auth": True}, "agents": {"cursor": {"command": []}}}, "agents.cursor.command"),
-    ({"gateway": {"no_auth": True}, "agents": {"aider": "on"}}, "agents.aider must be a mapping"),
+    ({"gateway": {"no_auth": True}, "agents": {"omp": "on"}}, "agents.omp must be a mapping"),
     ({"gateway": {"no_auth": True}, "agnts": {}}, "unknown top-level"),
 ])
 def test_a_mistake_stops_the_gateway_at_start_and_says_where(tmp_path, raw, where):

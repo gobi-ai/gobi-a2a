@@ -1,4 +1,4 @@
-"""A coding agent that is a command line program, behind A2A: the base of the cursor, codex, aider and omp scaffolds.
+"""A coding agent that is a command line program, behind A2A: the base of the cursor, codex and omp scaffolds.
 
 One A2A task is one run of the command, in the A2A context's own folder (a follow-up in the same context works in the
 same folder, so whatever the tool keeps there, its chat history or a git repo, carries over). While it runs, each line

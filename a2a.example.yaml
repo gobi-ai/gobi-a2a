@@ -62,20 +62,13 @@ agents:
     timeout:
     env: {}                       # e.g. CODEX_API_KEY: ${CODEX_API_KEY}
 
-  aider:                          # https://aider.chat
+  omp:                            # oh-my-pi, the pi coding agent: https://github.com/can1357/oh-my-pi (runs on bun)
     enabled: false
-    command: [aider, --yes-always, --no-pretty, --no-stream, --no-check-update, --message, "{prompt}"]
-    model:                        # e.g. sonnet, gpt-5; empty: aider's default
-    model_args: [--model, "{model}"]
-    timeout:
-    env: {}                       # e.g. ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-
-  omp:                            # oh-my-pi, the pi coding agent: check `omp --help` for your version's flags
-    enabled: false
-    command: [omp, -p, "{prompt}"]
-    model:
+    command: [omp, --mode, json, --, "{prompt}"]
+    model:                        # empty: omp's default (`omp login` picks the providers)
     model_args: [--model, "{model}"]
     effort:
     effort_args: [--thinking, "{effort}"]
+    resume_args: [--resume, "{session}"]   # a follow-up in the same conversation continues the session; [] starts afresh
     timeout:
     env: {}

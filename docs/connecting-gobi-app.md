@@ -88,7 +88,7 @@ To disable the proxy, run: tailscale funnel --https=443 off
 gateway  listens on 127.0.0.1:8000, reached at https://my-mac.tail1234.ts.net, bearer token set
 claude   https://my-mac.tail1234.ts.net/claude  workdir=/Users/you/gobi-a2a/work/claude  model=claude-opus-5-5 effort=- permission_mode=default max_turns=none
 cursor   https://my-mac.tail1234.ts.net/cursor  workdir=/Users/you/gobi-a2a/work/cursor  command=cursor-agent
-aider    disabled
+codex    disabled
 omp      disabled
 
 Agent URLs ready. In the Gobi app: Workers > gear > Remote agent, add each address with the token:
@@ -197,7 +197,7 @@ swap in real screenshots.
   </tr>
 </table>
 
-Repeat steps 4 to 8 for each other agent you enabled (`/cursor`, `/codex`, `/aider`, `/omp`), with the same token unless you
+Repeat steps 4 to 8 for each other agent you enabled (`/cursor`, `/codex`, `/omp`), with the same token unless you
 gave that agent its own `token:` in `a2a.yaml`.
 
 ## Using it

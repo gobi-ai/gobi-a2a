@@ -1,4 +1,4 @@
-"""The cursor, codex, aider and omp scaffolds: a command line program per task, run on tests/fake_agent.py."""
+"""The cursor, codex and omp scaffolds: a command line program per task, run on tests/fake_agent.py."""
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +12,7 @@ from a2a.types import CancelTaskRequest, GetTaskRequest, TaskState
 from google.protobuf.json_format import MessageToDict
 
 from conftest import FAKE_AGENT, client_for, config, fake_cli, final, http_for
-from gobi_a2a.agents import aider, codex, cursor, omp
+from gobi_a2a.agents import codex, cursor, omp
 from gobi_a2a.agents.cli import CLISettings
 from gobi_a2a.gateway import create_app
 
@@ -27,7 +27,7 @@ def lines(text: str) -> dict[str, str]:
     return dict(line.split(": ", 1) for line in text.splitlines() if ": " in line)
 
 
-@pytest.mark.parametrize("name", ["cursor", "codex", "aider", "omp"])
+@pytest.mark.parametrize("name", ["cursor", "codex", "omp"])
 async def test_a_task_is_one_run_and_its_output_is_the_result(tmp_path, name):
     client, http, _ = await agent(tmp_path, name)
     task = await final(client, "fix the bug")
@@ -74,7 +74,7 @@ async def test_the_prompt_is_one_argument_never_shell(tmp_path):
 
 
 async def test_a_nonzero_exit_is_a_failed_task_with_its_stderr(tmp_path):
-    client, http, _ = await agent(tmp_path, "aider")
+    client, http, _ = await agent(tmp_path, "codex")
     task = await final(client, "fail")
     assert task.status.state == TaskState.TASK_STATE_FAILED
     status = str(MessageToDict(task.status))
@@ -185,10 +185,29 @@ def test_cursor_events():
     assert (done.text, done.error, done.usage) == ("all done", None, {"x": 1})
 
 
+def test_omp_events():
+    assert omp.events({"type": "session", "id": "s1", "cwd": "/w"}).session == "s1"
+    assert omp.events({"type": "tool_execution_start", "toolName": "bash", "args": {"command": "ls"}}).note == "bash: ls"
+    assert omp.events({"type": "tool_execution_start", "toolName": "read", "args": {}, "intent": "Reading a.py"}).note == \
+        "read: Reading a.py"
+    done = omp.events({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop", "usage": {"input": 5},
+                                                          "content": [{"type": "thinking", "thinking": "hm"},
+                                                                      {"type": "text", "text": "All done."}]}})
+    assert (done.text, done.note, done.usage, done.error) == ("All done.", "All done.", {"input": 5}, None)
+    tools_only = omp.events({"type": "message_end", "message": {"role": "assistant", "stopReason": "toolUse",
+                                                                "content": [{"type": "toolCall", "name": "bash"}]}})
+    assert tools_only.text is None, "a message that only calls tools is not the answer"
+    failed = omp.events({"type": "message_end", "message": {"role": "assistant", "stopReason": "error",
+                                                            "errorMessage": "401", "content": []}})
+    assert failed.error == "401"
+    assert omp.events({"type": "message_end", "message": {"role": "user", "content": [{"type": "text", "text": "q"}]}}) == \
+        omp.Event()
+
+
 def test_the_scaffolds_default_commands():
     assert cursor.Config(enabled=True).command[:2] == ["cursor-agent", "--print"]
-    assert aider.Config().command[0] == "aider" and "{prompt}" in aider.Config().command
-    assert omp.Config().command == ["omp", "-p", "{prompt}"]
+    assert omp.Config().command == ["omp", "--mode", "json", "--", "{prompt}"]
+    assert omp.Config().resume_args == ["--resume", "{session}"]
     assert codex.Config().command[:3] == ["codex", "exec", "--json"] and codex.Config().command[-2:] == ["--", "{prompt}"]
     assert codex.Config().resume_args == ["resume", "{session}"] and cursor.Config().resume_args == ["--resume", "{session}"]
     assert "stream-json" in cursor.Config().command and "--trust" in cursor.Config().command

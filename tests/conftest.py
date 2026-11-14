@@ -86,8 +86,7 @@ async def final(client, text, context_id=None, **kw):
 async def gateway(tmp_path):
     """Every agent mounted: claude on a scripted run, the scaffolds on tests/fake_agent.py."""
     script = Script()
-    cfg = config(tmp_path, {"claude": {"enabled": True}, "cursor": fake_cli(), "codex": fake_cli(), "aider": fake_cli(),
-                       "omp": fake_cli()})
+    cfg = config(tmp_path, {"claude": {"enabled": True}, "cursor": fake_cli(), "codex": fake_cli(), "omp": fake_cli()})
     app = create_app(cfg, agent_kwargs={"claude": {"run": script}})
     http = http_for(app)
     yield app, http, script

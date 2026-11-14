@@ -2,7 +2,8 @@
 
 Prints its working folder and its arguments, a line per word of the prompt, then "answer: <prompt>". The prompt
 (argv[1]) steers it: "fail" exits 3 with a message on stderr, "hang" sleeps until killed, "touch" writes a file in its
-folder and lists what is there.
+folder and lists what is there. "json" prints Codex-style JSON events instead: a session (its id names how many runs
+the folder has seen), and its arguments as the answer.
 """
 import json
 import os
@@ -11,6 +12,20 @@ import time
 from pathlib import Path
 
 prompt, rest = sys.argv[1], sys.argv[2:]
+if prompt == "json":
+    runs = len(list(Path().glob("run-*"))) + 1
+    Path(f"run-{runs}").write_text("x")
+    if "gone" in rest:
+        print("no rollout found for that session", file=sys.stderr, flush=True)
+        sys.exit(1)
+    events = [{"type": "thread.started", "thread_id": f"session-{runs}"},
+              {"type": "item.started", "item": {"type": "command_execution", "command": "ls"}},
+              {"type": "item.completed", "item": {"type": "agent_message", "text": f"args: {json.dumps(rest)}"}},
+              {"type": "turn.completed", "usage": {"input_tokens": 10, "output_tokens": 2}}]
+    print("not json, a plain line", flush=True)
+    for e in events:
+        print(json.dumps(e), flush=True)
+    sys.exit(0)
 print(f"cwd: {os.getcwd()}", flush=True)
 print(f"args: {json.dumps(rest)}", flush=True)
 for word in prompt.split():

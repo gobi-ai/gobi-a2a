@@ -165,8 +165,8 @@ Conventions on the wire (the protobuf JSON mapping the spec uses):
 
 ## 4. Endpoints
 
-The gateway's own endpoints, plus each enabled agent's A2A endpoints under `/<agent>` (`claude`, `cursor`, `aider`,
-`omp`):
+The gateway's own endpoints, plus each enabled agent's A2A endpoints under `/<agent>` (`claude`, `cursor`, `codex`,
+`aider`, `omp`):
 
 | Method and path | Auth | Body | Answer |
 |---|---|---|---|

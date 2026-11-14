@@ -7,7 +7,7 @@
 
 **Unified gateway serving local coding agents over the official [A2A protocol](https://a2a-protocol.org).**
 
-Run Claude Code, Cursor, Aider or Oh My Pi on your own machine and hand them work from the Gobi app, or from any A2A
+Run Claude Code, Cursor, Codex, Aider or Oh My Pi on your own machine and hand them work from the Gobi app, or from any A2A
 client. One process, one port, one tunnel, one config file (`a2a.yaml`).
 
 ## Supported agents
@@ -15,7 +15,8 @@ client. One process, one port, one tunnel, one config file (`a2a.yaml`).
 | Agent | Path | Runs | Status |
 |---|---|---|---|
 | **Claude Code** | `/claude` | the Claude Agent SDK | ✅ on by default |
-| **Cursor** | `/cursor` | `cursor-agent --print` | 🧪 scaffold, off by default |
+| **Cursor** | `/cursor` | `cursor-agent --print`, resumes its chat | 🧪 scaffold, off by default |
+| **Codex** | `/codex` | `codex exec`, resumes its session | 🧪 scaffold, off by default |
 | **Aider** | `/aider` | `aider --message` | 🧪 scaffold, off by default |
 | **Oh My Pi** | `/omp` | `omp -p` | 🧪 scaffold, off by default |
 
@@ -78,6 +79,7 @@ test in ~/src/app"*.
 ```
 Gobi app ─▶ Gobi harness (cloud) ─▶ https tunnel ─▶ gobi-a2a :8000 ─┬─▶ /claude  Claude Code (Agent SDK)
                                                                     ├─▶ /cursor  cursor-agent
+                                                                    ├─▶ /codex   codex exec
                                                                     ├─▶ /aider   aider
                                                                     └─▶ /omp     omp
 ```
@@ -110,7 +112,8 @@ need none of the agents installed. `tests/test_protocol.py` sends raw JSON-RPC e
 gobi_a2a/
   main.py        the gobi-a2a command          config.py   a2a.yaml loading and validation
   gateway.py     FastAPI app, mounts agents    auth.py     bearer-token middleware
-  agents/        common.py, claude.py, cli.py (shared CLI executor), cursor.py, aider.py, omp.py
+  agents/        common.py, claude.py, cli.py (shared CLI executor), cursor.py, codex.py,
+                 aider.py, omp.py
 tests/           pytest, including test_protocol.py
 examples/        echo_agent.py, a standalone A2A agent
 ```

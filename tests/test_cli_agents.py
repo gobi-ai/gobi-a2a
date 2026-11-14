@@ -1,4 +1,4 @@
-"""The cursor, aider and omp scaffolds: a command line program per task, run on tests/fake_agent.py."""
+"""The cursor, codex, aider and omp scaffolds: a command line program per task, run on tests/fake_agent.py."""
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +12,7 @@ from a2a.types import CancelTaskRequest, GetTaskRequest, TaskState
 from google.protobuf.json_format import MessageToDict
 
 from conftest import FAKE_AGENT, client_for, config, fake_cli, final, http_for
-from gobi_a2a.agents import aider, cursor, omp
+from gobi_a2a.agents import aider, codex, cursor, omp
 from gobi_a2a.agents.cli import CLISettings
 from gobi_a2a.gateway import create_app
 
@@ -27,7 +27,7 @@ def lines(text: str) -> dict[str, str]:
     return dict(line.split(": ", 1) for line in text.splitlines() if ": " in line)
 
 
-@pytest.mark.parametrize("name", ["cursor", "aider", "omp"])
+@pytest.mark.parametrize("name", ["cursor", "codex", "aider", "omp"])
 async def test_a_task_is_one_run_and_its_output_is_the_result(tmp_path, name):
     client, http, _ = await agent(tmp_path, name)
     task = await final(client, "fix the bug")
@@ -131,8 +131,68 @@ def test_argv_placeholders():
     assert CLISettings(workdir=Path("."), command=["tool", "-p"]).argv("{model} x") == ["tool", "-p", "{model} x"]
 
 
+def test_model_and_effort_go_before_a_double_dash_so_the_prompt_stays_an_argument():
+    s = CLISettings(workdir=Path("."), command=["tool", "exec", "--", "{prompt}"], model_args=["--model", "{model}"],
+                    effort_args=["-c", "effort={effort}"])
+    assert s.argv("--yolo", model="m", effort="high") == ["tool", "exec", "--model", "m", "-c", "effort=high", "--", "--yolo"]
+    assert CLISettings(workdir=Path("."), command=["tool", "--"], model_args=["-m", "{model}"]).argv("-x", model="m") == \
+        ["tool", "-m", "m", "--", "-x"]
+
+
+async def test_json_events_are_notes_and_the_answer_and_a_follow_up_resumes_the_session(tmp_path):
+    client, http, _ = await agent(tmp_path, "codex", resume_args=["resume", "{session}"])
+    first = await final(client, "json")
+    assert first.status.state == TaskState.TASK_STATE_COMPLETED
+    assert get_artifact_text(first.artifacts[0]) == "args: []", "the last message is the result, not the event lines"
+    assert MessageToDict(first.status.message.metadata)["usage"] == {"input_tokens": 10, "output_tokens": 2}
+    notes = " ".join(str(MessageToDict(m)) for m in (await client.get_task(GetTaskRequest(id=first.id))).history)
+    assert "$ ls" in notes and "not json, a plain line" in notes
+    again = await final(client, "json", context_id=first.context_id)
+    assert get_artifact_text(again.artifacts[0]) == 'args: ["resume", "session-1"]'
+    other = await final(client, "json")
+    assert get_artifact_text(other.artifacts[0]) == "args: []", "another context starts its own session"
+    await http.aclose()
+
+
+async def test_a_session_that_will_not_resume_is_dropped_so_the_next_message_starts_afresh(tmp_path):
+    client, http, app = await agent(tmp_path, "codex", resume_args=["gone", "{session}"])
+    first = await final(client, "json")
+    failed = await final(client, "json", context_id=first.context_id)
+    assert failed.status.state == TaskState.TASK_STATE_FAILED
+    assert "no rollout found" in str(MessageToDict(failed.status.message)) and "new session" in str(MessageToDict(failed.status.message))
+    fresh = await final(client, "json", context_id=first.context_id)
+    assert get_artifact_text(fresh.artifacts[0]) == "args: []"
+    await http.aclose()
+
+
+def test_codex_events():
+    assert codex.events({"type": "thread.started", "thread_id": "t"}).session == "t"
+    assert codex.events({"type": "turn.failed", "error": {"message": "401"}}).error == "401"
+    ev = codex.events({"type": "item.completed", "item": {"type": "agent_message", "text": "done"}})
+    assert (ev.text, ev.note) == ("done", "done")
+    assert codex.events({"type": "item.completed", "item": {"type": "file_change", "changes": [{"path": "a.py"}]}}).note == "Changed a.py"
+    assert codex.events({"type": "item.started", "item": {"type": "reasoning"}}) == codex.Event()
+
+
+def test_cursor_events():
+    assert cursor.events({"type": "system", "subtype": "init", "session_id": "c"}).session == "c"
+    ev = cursor.events({"type": "assistant", "message": {"content": [{"type": "text", "text": "hi"}]}, "session_id": "c"})
+    assert (ev.note, ev.session) == ("hi", "c")
+    started = {"type": "tool_call", "subtype": "started", "tool_call": {"shellToolCall": {"args": {"command": "npm test"}}}}
+    assert cursor.events(started).note == "shell: npm test"
+    assert cursor.tool_note({"tool": {"case": "readToolCall", "value": {"args": {"path": "a.py"}}}}) == "read: a.py"
+    done = cursor.events({"type": "result", "subtype": "success", "is_error": False, "result": "all done", "usage": {"x": 1}})
+    assert (done.text, done.error, done.usage) == ("all done", None, {"x": 1})
+
+
 def test_the_scaffolds_default_commands():
     assert cursor.Config(enabled=True).command[:2] == ["cursor-agent", "--print"]
     assert aider.Config().command[0] == "aider" and "{prompt}" in aider.Config().command
     assert omp.Config().command == ["omp", "-p", "{prompt}"]
+    assert codex.Config().command[:3] == ["codex", "exec", "--json"] and codex.Config().command[-2:] == ["--", "{prompt}"]
+    assert codex.Config().resume_args == ["resume", "{session}"] and cursor.Config().resume_args == ["--resume", "{session}"]
+    assert "stream-json" in cursor.Config().command and "--trust" in cursor.Config().command
+    s = CLISettings(workdir=Path("."), command=codex.Config().command, model_args=["--model", "{model}"],
+                    resume_args=codex.Config().resume_args)
+    assert s.argv("- go", model="m", session="t")[-6:] == ["--model", "m", "resume", "t", "--", "- go"]
     assert FAKE_AGENT.exists()

@@ -28,7 +28,7 @@ compare the addresses the gateway thinks it has with the one you entered in the 
 | It worked, then stopped after a restart | With a Cloudflare quick tunnel the address changed: update `A2A_PUBLIC_URL`, restart the gateway, then remove the worker and add it again. A Tailscale Funnel address does not change. |
 | Start-up ends with `! http://127.0.0.1:8000 is not https` | `A2A_PUBLIC_URL` is not set, so the Agent URLs block lists local addresses Gobi cannot call. Set it to the tunnel's address and restart. |
 | The gateway refuses to start and names a key | A typo or bad value in `a2a.yaml` (an unknown key or agent). Fix the key it names; see [configuration.md](configuration.md). |
-| A CLI agent's tasks fail with "not installed" | Its program (`cursor-agent`, `aider`, `omp`) is not on `PATH` for the gateway. Install it, or point `command` at it. |
+| A CLI agent's tasks fail with "not installed" | Its program (`cursor-agent`, `codex`, `aider`, `omp`) is not on `PATH` for the gateway. Install it, or point `command` at it. |
 | `SendStreamingMessage` hangs through the tunnel | Cloudflare quick tunnels do not carry Server-Sent Events. Poll with `GetTask` (the Gobi harness only polls), or use a Tailscale Funnel or a named Cloudflare tunnel. |
 | A pre-1.0 call (`tasks/send`, `message/send`) gets `-32601` | Only A2A 1.0 method names are served. See [protocol.md §7.8](protocol.md#78-method-names-from-earlier-versions-taskssend-tasksget-). |
 | Every call fails with `-32009` | The `A2A-Version: 1.0` header is missing. See [protocol.md §3](protocol.md#3-transport-http-headers-json-rpc-envelope). |

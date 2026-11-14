@@ -18,7 +18,7 @@ def test_the_example_config_loads_with_claude_on_and_the_scaffolds_off():
     gw = cfg.gateway
     assert (gw.host, gw.port, gw.token, gw.url) == ("127.0.0.1", 8000, "t", "https://me.ngrok.app")
     assert gw.workdir == (ROOT / "work").resolve()
-    assert list(cfg.enabled) == ["claude"] and set(cfg.agents) == {"claude", "cursor", "aider", "omp"}
+    assert list(cfg.enabled) == ["claude"] and set(cfg.agents) == {"claude", "cursor", "codex", "aider", "omp"}
     c = cfg.agents["claude"]
     assert (c.model, c.effort, c.thinking, c.permission_mode, c.max_turns) == ("claude-opus-5-5", None, None, "default", None)
     assert "Bash" not in c.allowed_tools
@@ -74,7 +74,7 @@ def test_claudes_settings(tmp_path):
     ({"gateway": {"no_auth": True, "prot": 1}}, "gateway.prot"),
     ({"gateway": {"no_auth": True, "port": 70000}}, "gateway.port"),
     ({"gateway": {"no_auth": True, "public_url": "me.ngrok.app"}}, "gateway.public_url"),
-    ({"gateway": {"no_auth": True}, "agents": {"codex": {}}}, "unknown agent"),
+    ({"gateway": {"no_auth": True}, "agents": {"gemini": {}}}, "unknown agent"),
     ({"gateway": {"no_auth": True}, "agents": {"claude": {"modle": "x"}}}, "agents.claude.modle"),
     ({"gateway": {"no_auth": True}, "agents": {"claude": {"permission_mode": "yolo"}}}, "bypassPermissions"),
     ({"gateway": {"no_auth": True}, "agents": {"claude": {"effort": "extreme"}}}, "agents.claude.effort"),

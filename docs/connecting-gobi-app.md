@@ -197,7 +197,7 @@ swap in real screenshots.
   </tr>
 </table>
 
-Repeat steps 4 to 8 for each other agent you enabled (`/cursor`, `/aider`, `/omp`), with the same token unless you
+Repeat steps 4 to 8 for each other agent you enabled (`/cursor`, `/codex`, `/aider`, `/omp`), with the same token unless you
 gave that agent its own `token:` in `a2a.yaml`.
 
 ## Using it

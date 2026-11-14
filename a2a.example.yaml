@@ -35,15 +35,32 @@ agents:
 
   # The scaffolds below run a command line agent once per task, in the conversation's folder: each printed line is a
   # progress note, the output is the result. `command` is an argv list (no shell); "{prompt}" is the task's text, or
-  # it is appended. model_args / effort_args are added when a model / effort is set here or by the message.
+  # it is appended. model_args / effort_args are added when a model / effort is set here or by the message, and
+  # resume_args ("{session}") for a follow-up, all just before a "--" if the command has one.
 
   cursor:                         # Cursor's agent CLI: https://cursor.com/cli
     enabled: false
-    command: [cursor-agent, --print, --output-format, text]   # add --force to let it change files and run commands
+    # --trust: each conversation has a new folder, and print mode stops in one it has not been told to trust.
+    # Add --force to let it change files and run commands.
+    command: [cursor-agent, --print, --output-format, stream-json, --trust, --, "{prompt}"]
     model:
     model_args: [--model, "{model}"]
+    resume_args: [--resume, "{session}"]   # a follow-up in the same conversation continues the chat; [] starts afresh
     timeout:                      # seconds; empty: no limit
     env: {}                       # e.g. CURSOR_API_KEY: ${CURSOR_API_KEY}
+
+  codex:                          # OpenAI's Codex CLI: https://github.com/openai/codex
+    enabled: false
+    # The sandbox lets Codex change files and run commands in the conversation's folder, without network.
+    # danger-full-access lifts it: only where Codex may do anything the account running the gateway can.
+    command: [codex, exec, --json, --skip-git-repo-check, --sandbox, workspace-write, --color, never, --, "{prompt}"]
+    model:                        # empty: Codex's default
+    model_args: [--model, "{model}"]
+    effort:                       # low|medium|high|xhigh (Codex has no max)
+    effort_args: [-c, "model_reasoning_effort={effort}"]
+    resume_args: [resume, "{session}"]     # a follow-up in the same conversation continues the session; [] starts afresh
+    timeout:
+    env: {}                       # e.g. CODEX_API_KEY: ${CODEX_API_KEY}
 
   aider:                          # https://aider.chat
     enabled: false

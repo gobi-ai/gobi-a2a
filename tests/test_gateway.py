@@ -10,7 +10,7 @@ from a2a.types import TaskState
 from conftest import BASE, TOKEN, Script, client_for, config, fake_cli, final, http_for
 from gobi_a2a.gateway import create_app
 
-AGENTS = ["claude", "cursor", "aider", "omp"]
+AGENTS = ["claude", "cursor", "codex", "aider", "omp"]
 RPC = {"jsonrpc": "2.0", "id": 1, "method": "GetTask", "params": {"id": "nope"}}
 
 
@@ -19,10 +19,10 @@ async def test_by_default_only_claude_is_mounted(tmp_path):
     assert list(app.state.agents) == ["claude"]
     async with http_for(app) as http:
         assert (await http.get("/claude/.well-known/agent-card.json")).status_code == 200
-        for off in ("cursor", "aider", "omp"):
+        for off in ("cursor", "codex", "aider", "omp"):
             assert (await http.get(f"/{off}/.well-known/agent-card.json")).status_code == 404
         index = (await http.get("/")).json()
-    assert [a["id"] for a in index["agents"]] == ["claude"] and index["disabled"] == ["cursor", "aider", "omp"]
+    assert [a["id"] for a in index["agents"]] == ["claude"] and index["disabled"] == ["cursor", "codex", "aider", "omp"]
 
 
 async def test_every_enabled_agent_is_mounted_under_its_name(gateway):
@@ -43,7 +43,8 @@ async def test_the_index_and_v1_agents_list_each_agents_address(gateway):
                       "endpoint": f"{BASE}/claude/", "card": f"{BASE}/claude/.well-known/agent-card.json", "auth": "bearer"}
     agents = (await http.get("/v1/agents")).json()["agents"]
     assert [a["id"] for a in agents] == AGENTS
-    assert agents[1]["agent_card"]["name"] == "Cursor Agent" and agents[2]["agent_card"]["name"] == "Aider"
+    assert agents[1]["agent_card"]["name"] == "Cursor Agent" and agents[2]["agent_card"]["name"] == "Codex" \
+        and agents[3]["agent_card"]["name"] == "Aider"
     assert (await http.get("/healthz")).json() == {"status": "ok"}
 
 

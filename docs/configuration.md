@@ -8,7 +8,7 @@ HTTP endpoints. For the wire protocol itself see [protocol.md](protocol.md).
 - [The command](#the-command)
 - [`a2a.yaml`](#a2ayaml)
   - [`claude`](#claude)
-  - [`cursor`, `codex`, `omp` (scaffolds)](#cursor-codex-omp-scaffolds)
+  - [`cursor`, `codex`, `omp`, `copilot` (scaffolds)](#cursor-codex-omp-copilot-scaffolds)
 - [Model and effort per task](#model-and-effort-per-task)
 - [Endpoints](#endpoints)
 
@@ -75,7 +75,7 @@ gateway can, such as a container or a dedicated machine. To switch it, edit `a2a
 Claude Code signs in as it does on this machine (`ANTHROPIC_API_KEY`, or its own login), and the run's cost is on that
 account.
 
-### `cursor`, `codex`, `omp` (scaffolds)
+### `cursor`, `codex`, `omp`, `copilot` (scaffolds)
 
 Each runs its command line program once per task, in that conversation's folder. Each line the program prints is a
 progress note, and what it printed is the result when it exits 0. Any other exit fails the task with the end of its
@@ -85,8 +85,8 @@ stderr. A cancel stops the process (SIGTERM, then SIGKILL).
 |---|---|
 | `command` | argv list, never a shell line. `"{prompt}"` is replaced by the task's text; without one, the text is appended as the last argument. Model and effort flags go just before a `--` in it, if it has one |
 | `model`, `model_args` | the default model, and the flags that pass one (`[--model, "{model}"]`), added only when a model is set here or by the message |
-| `effort`, `effort_args` | the same for effort (omp: `[--thinking, "{effort}"]`, codex: `[-c, "model_reasoning_effort={effort}"]`) |
-| `resume_args` | the flags that continue a session (codex: `[resume, "{session}"]`, cursor and omp: `[--resume, "{session}"]`), added for a follow-up in the same conversation; `[]` starts each task afresh |
+| `effort`, `effort_args` | the same for effort (omp: `[--thinking, "{effort}"]`, codex: `[-c, "model_reasoning_effort={effort}"]`, copilot: `["--reasoning-effort={effort}"]`) |
+| `resume_args` | the flags that continue a session (codex: `[resume, "{session}"]`, cursor and omp: `[--resume, "{session}"]`), added for a follow-up in the same conversation; `[]` starts each task afresh. copilot's, `["--session-id={session}"]`, go on every task: the gateway names the session |
 | `timeout` | seconds per run; empty: no limit |
 | `env` | variables added for the run, e.g. `CURSOR_API_KEY: ${CURSOR_API_KEY}` |
 
@@ -103,6 +103,18 @@ The defaults:
   assistant text), and the session id from its first line is kept so a follow-up runs with `--resume <session>`. omp
   signs in with `omp login` (a ChatGPT, Copilot or Gemini subscription, or an API key) and needs bun. Its thinking
   levels stop at `xhigh`.
+- **copilot:** `copilot --prompt=<prompt> --silent --no-color --allow-all-tools --no-ask-user --autopilot`, GitHub
+  Copilot CLI (`npm install -g @github/copilot` or `brew install copilot-cli`). `--silent` prints only the answer, which
+  is the result. Nobody is there to approve anything, and without permission flags `-p` denies every request that needs
+  it, so `--allow-all-tools` lets Copilot run its tools (shell, file writes) in the conversation's folder, `--no-ask-user`
+  keeps it from stopping to ask, and `--autopilot` lets it keep going until the task is done. `--allow-all` (or
+  `--yolo`) also lifts its path and URL checks, Copilot's counterpart to `bypassPermissions`. Copilot does not print a
+  session id here but takes one: the conversation's first task runs with a new UUID in `--session-id`, which starts
+  that session, and each follow-up with the same one. Model: `--model=<name>`, or `auto`. Copilot signs in with
+  `copilot login`, or `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` in `env` (a fine-grained token with the *Copilot Requests*
+  permission; classic `ghp_` tokens do not work). The `copilot` that VS Code's Copilot Chat puts on `PATH` is a shim,
+  not the CLI. It asks to install the CLI and exits 0 even when a run fails, so the gateway leaves its folder off the
+  run's `PATH`. Without the real CLI, tasks fail with "not installed".
 
 The CLI agents sign in the same way their programs do on this machine. The gateway starts even if a program is not
 installed. It logs a warning, and that agent's tasks fail with "not installed".

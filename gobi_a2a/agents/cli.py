@@ -1,4 +1,4 @@
-"""A coding agent that is a command line program, behind A2A: the base of the cursor, codex and omp scaffolds.
+"""A coding agent that is a command line program, behind A2A: the base of the cursor, codex, omp and copilot scaffolds.
 
 One A2A task is one run of the command, in the A2A context's own folder (a follow-up in the same context works in the
 same folder, so whatever the tool keeps there, its chat history or a git repo, carries over). While it runs, each line
@@ -15,6 +15,10 @@ An agent whose output is JSON events (codex, cursor) gives build_cli an `events`
 an Event: a progress note, the answer, an error, usage, or the agent's session id. With a session id and `resume_args`
 ("{session}" replaced by it, placed as model_args are), a follow-up in the same A2A context resumes that session, as
 claude does. A line that is not a JSON object is read as plain text.
+
+An agent that takes a session id rather than reporting one (copilot: `--session-id <uuid>` opens that session, or
+starts it) gives build_cli a `new_session` function instead: the first task in an A2A context runs with a new id in
+`resume_args`, and each follow-up with the same one.
 """
 from __future__ import annotations
 
@@ -106,6 +110,7 @@ class CLISettings:
     timeout: float | None = None
     env: dict[str, str] = field(default_factory=dict)
     events: Events | None = None                  # reads the output as JSON events; None: plain text
+    new_session: Callable[[], str] | None = None  # names the session a context's first task starts; None: the agent does
 
     def argv(self, prompt: str, model: str | None = None, effort: str | None = None,
              session: str | None = None) -> list[str]:
@@ -170,7 +175,10 @@ class CLIExecutor(AgentExecutor):
                    effort: str | None = None) -> None:
         ws = workspace(self.s.workdir, context_id)
         resumed = self.sessions.get(context_id) if self.s.resume_args else None
-        argv = self.s.argv(prompt, model, effort, resumed)
+        session = resumed
+        if session is None and self.s.resume_args and self.s.new_session is not None:
+            session = self.sessions[context_id] = self.s.new_session()   # the agent opens the session it is told to
+        argv = self.s.argv(prompt, model, effort, session)
         log.info("run in %s: %s%s", context_id, argv[0], f" (resuming {resumed})" if resumed else "")
         proc = await asyncio.create_subprocess_exec(*argv, cwd=ws, stdin=asyncio.subprocess.DEVNULL,
                                                     stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
@@ -265,12 +273,14 @@ async def stop(proc: asyncio.subprocess.Process) -> None:
 
 
 def build_cli(name: str, cfg: CLIConfig, *, url: str, workdir: Path, auth: bool, token: str | None, title: str,
-              description: str, skill: AgentSkill, events: Events | None = None) -> Mounted:
+              description: str, skill: AgentSkill, events: Events | None = None,
+              new_session: Callable[[], str] | None = None) -> Mounted:
     """Mount a command line agent. The gateway starts even if the program is missing; its tasks then fail and say so."""
     settings = CLISettings(workdir=workdir, command=list(cfg.command), label=cfg.name or title, model=cfg.model,
                            model_args=list(cfg.model_args), effort=cfg.effort, effort_args=list(cfg.effort_args),
-                           resume_args=list(cfg.resume_args), timeout=cfg.timeout, env=dict(cfg.env), events=events)
-    if shutil.which(settings.command[0]) is None:
+                           resume_args=list(cfg.resume_args), timeout=cfg.timeout, env=dict(cfg.env), events=events,
+                           new_session=new_session)
+    if shutil.which(settings.command[0], path=settings.env.get("PATH")) is None:
         log.warning("%s: %r is not on PATH; its tasks will fail until it is installed", name, settings.command[0])
     executor = CLIExecutor(settings)
     agent_card = card(url, cfg.name or title, cfg.description or description, auth=auth, skills=[skill])

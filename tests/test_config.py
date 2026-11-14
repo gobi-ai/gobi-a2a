@@ -18,11 +18,13 @@ def test_the_example_config_loads_with_claude_on_and_the_scaffolds_off():
     gw = cfg.gateway
     assert (gw.host, gw.port, gw.token, gw.url) == ("127.0.0.1", 8000, "t", "https://me.ngrok.app")
     assert gw.workdir == (ROOT / "work").resolve()
-    assert list(cfg.enabled) == ["claude"] and set(cfg.agents) == {"claude", "cursor", "codex", "omp"}
+    assert list(cfg.enabled) == ["claude"] and set(cfg.agents) == {"claude", "cursor", "codex", "omp", "copilot"}
     c = cfg.agents["claude"]
     assert (c.model, c.effort, c.thinking, c.permission_mode, c.max_turns) == ("claude-opus-5-5", None, None, "default", None)
     assert "Bash" not in c.allowed_tools
     assert cfg.agents["codex"].command[:2] == ["codex", "exec"] and cfg.agents["omp"].effort_args == ["--thinking", "{effort}"]
+    assert cfg.agents["copilot"].command[:2] == ["copilot", "--prompt={prompt}"]
+    assert cfg.agents["copilot"].resume_args == ["--session-id={session}"]
 
 
 def test_without_a_public_url_the_cards_name_the_listening_address():

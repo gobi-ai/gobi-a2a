@@ -1,9 +1,10 @@
-"""The cursor, codex and omp scaffolds: a command line program per task, run on tests/fake_agent.py."""
+"""The cursor, codex, omp and copilot scaffolds: a command line program per task, run on tests/fake_agent.py."""
 from __future__ import annotations
 
 import asyncio
 import json
 import os
+import uuid
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,7 @@ from a2a.types import CancelTaskRequest, GetTaskRequest, TaskState
 from google.protobuf.json_format import MessageToDict
 
 from conftest import FAKE_AGENT, client_for, config, fake_cli, final, http_for
-from gobi_a2a.agents import codex, cursor, omp
+from gobi_a2a.agents import codex, copilot, cursor, omp
 from gobi_a2a.agents.cli import CLISettings
 from gobi_a2a.gateway import create_app
 
@@ -215,3 +216,80 @@ def test_the_scaffolds_default_commands():
                     resume_args=codex.Config().resume_args)
     assert s.argv("- go", model="m", session="t")[-6:] == ["--model", "m", "resume", "t", "--", "- go"]
     assert FAKE_AGENT.exists()
+
+
+def test_copilots_default_command_runs_one_prompt_unattended_and_names_its_session():
+    c = copilot.Config()
+    assert not c.enabled and c.model is None and c.effort is None
+    s = CLISettings(workdir=Path("."), command=c.command, model_args=c.model_args, effort_args=c.effort_args,
+                    resume_args=c.resume_args)
+    assert s.argv("- fix it", model="gpt-5", effort="high", session="u-1") == [
+        "copilot", "--prompt=- fix it", "--silent", "--no-color", "--allow-all-tools", "--no-ask-user", "--autopilot",
+        "--model=gpt-5", "--reasoning-effort=high", "--session-id=u-1"], "the prompt is the value of --prompt=, one argument"
+    assert s.argv("go") == ["copilot", "--prompt=go", "--silent", "--no-color", "--allow-all-tools", "--no-ask-user",
+                            "--autopilot"]
+    assert uuid.UUID(copilot.new_session()).version == 4 and copilot.new_session() != copilot.new_session()
+
+
+def test_copilot_leaves_vs_codes_shim_off_the_path():
+    shim = os.path.join("/Users/me/Library/Application Support/Code/User/globalStorage", "github.copilot-chat", "copilotCli")
+    assert copilot.is_shim(shim) and copilot.is_shim(shim + "/") and not copilot.is_shim("/opt/homebrew/bin")
+    assert copilot.without_shim(os.pathsep.join(["/usr/bin", shim, "/opt/homebrew/bin"])) == \
+        os.pathsep.join(["/usr/bin", "/opt/homebrew/bin"])
+
+
+def args_of(task) -> list[str]:
+    return json.loads(lines(get_artifact_text(task.artifacts[0]))["args"])
+
+
+async def test_copilots_output_is_the_result_and_a_follow_up_runs_with_the_same_session_id(tmp_path):
+    client, http, _ = await agent(tmp_path, "copilot")
+    first = await final(client, "fix the bug")
+    assert first.status.state == TaskState.TASK_STATE_COMPLETED
+    out = lines(get_artifact_text(first.artifacts[0]))
+    assert out["answer"] == "fix the bug" and Path(out["cwd"]).resolve().parent == (tmp_path / "work" / "copilot").resolve()
+    (sid,) = args_of(first)
+    assert sid.startswith("--session-id=") and uuid.UUID(sid.removeprefix("--session-id="))
+    again = await final(client, "touch", context_id=first.context_id)
+    assert args_of(again) == [sid], "a follow-up continues the same Copilot session"
+    other = await final(client, "touch")
+    assert args_of(other) != [sid], "another context has its own session"
+    await http.aclose()
+
+
+async def test_a_failed_copilot_follow_up_drops_its_session_and_a_failed_first_run_keeps_it(tmp_path):
+    client, http, app = await agent(tmp_path, "copilot")
+    ex = app.state.agents["copilot"].executor
+    failed_first = await final(client, "fail")
+    assert failed_first.status.state == TaskState.TASK_STATE_FAILED and "it broke" in str(MessageToDict(failed_first.status))
+    kept = ex.sessions[failed_first.context_id]
+    again = await final(client, "go", context_id=failed_first.context_id)
+    assert args_of(again) == [f"--session-id={kept}"], "Copilot starts a session it was told to, so the id still serves"
+    failed = await final(client, "fail", context_id=again.context_id)
+    assert "new session" in str(MessageToDict(failed.status.message))
+    fresh = await final(client, "go", context_id=again.context_id)
+    assert args_of(fresh) != [f"--session-id={kept}"]
+    await http.aclose()
+
+
+async def test_copilot_without_the_real_cli_fails_as_not_installed_not_through_vs_codes_shim(tmp_path, monkeypatch):
+    shim = tmp_path / "Code" / "globalStorage" / "github.copilot-chat" / "copilotCli"
+    shim.mkdir(parents=True)
+    (shim / "copilot").write_text("#!/bin/sh\necho \"Install GitHub Copilot CLI? ['y/N']\"\nexit 0\n")
+    (shim / "copilot").chmod(0o755)
+    monkeypatch.setenv("PATH", os.pathsep.join([str(shim), "/usr/bin", "/bin"]))
+    app = create_app(config(tmp_path, {"copilot": {"enabled": True}}))
+    async with http_for(app) as http:
+        task = await final(await client_for(http, "copilot"), "go")
+    assert task.status.state == TaskState.TASK_STATE_FAILED and "not installed" in str(MessageToDict(task.status))
+
+    real = tmp_path / "bin"
+    real.mkdir()
+    (real / "copilot").write_text("#!/bin/sh\necho \"real copilot $1\"\n")
+    (real / "copilot").chmod(0o755)
+    monkeypatch.setenv("PATH", os.pathsep.join([str(shim), str(real), "/usr/bin", "/bin"]))
+    app = create_app(config(tmp_path, {"copilot": {"enabled": True}}))
+    async with http_for(app) as http:
+        task = await final(await client_for(http, "copilot"), "go")
+    assert task.status.state == TaskState.TASK_STATE_COMPLETED
+    assert get_artifact_text(task.artifacts[0]) == "real copilot --prompt=go", "the real CLI behind the shim is the one run"

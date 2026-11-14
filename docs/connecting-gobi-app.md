@@ -90,6 +90,7 @@ claude   https://my-mac.tail1234.ts.net/claude  workdir=/Users/you/gobi-a2a/work
 cursor   https://my-mac.tail1234.ts.net/cursor  workdir=/Users/you/gobi-a2a/work/cursor  command=cursor-agent
 codex    disabled
 omp      disabled
+copilot  disabled
 
 Agent URLs ready. In the Gobi app: Workers > gear > Remote agent, add each address with the token:
   • Claude Code   https://my-mac.tail1234.ts.net/claude
@@ -197,7 +198,7 @@ swap in real screenshots.
   </tr>
 </table>
 
-Repeat steps 4 to 8 for each other agent you enabled (`/cursor`, `/codex`, `/omp`), with the same token unless you
+Repeat steps 4 to 8 for each other agent you enabled (`/cursor`, `/codex`, `/omp`, `/copilot`), with the same token unless you
 gave that agent its own `token:` in `a2a.yaml`.
 
 ## Using it

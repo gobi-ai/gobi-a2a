@@ -346,6 +346,23 @@ async def test_errors(gw, method, params, code, reason):
         assert e["data"][0]["reason"] == reason and e["data"][0]["domain"] == "a2a-protocol.org"
 
 
+@pytest.mark.parametrize("method", ["tasks/send", "tasks/sendSubscribe", "tasks/get", "tasks/cancel", "tasks/resubscribe",
+                                    "message/send", "message/stream", "agent/getAuthenticatedExtendedCard"])
+async def test_pre_1_0_method_names_are_not_served(gw, method):
+    """docs/protocol.md §7.8: only the 1.0 names; an old name is -32601 with or without the version header."""
+    http, rpc, _, _ = gw
+    assert (await rpc.error(method, {"id": "x"}))["code"] == -32601
+    d = (await rpc.post(method, {"id": "x"}, headers={"Authorization": f"Bearer {TOKEN}"})).json()
+    assert d["error"]["code"] == -32601
+
+
+async def test_the_pre_1_0_card_path_is_not_served(gw):
+    http, _, _, _ = gw
+    assert (await http.get("/claude/.well-known/agent.json")).status_code == 401, "only agent-card.json is public"
+    assert (await http.get("/claude/.well-known/agent.json", headers=AUTH)).status_code == 404
+    assert (await http.get("/claude/.well-known/agent-card.json")).status_code == 200
+
+
 async def test_a_body_that_is_not_json_is_a_parse_error(gw):
     http, _, _, _ = gw
     d = (await http.post("/claude/", content=b"{nope", headers=AUTH)).json()

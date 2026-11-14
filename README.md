@@ -1,12 +1,14 @@
 # gobi-a2a
 
-One gateway in front of several coding agents, each an [A2A](https://a2a-protocol.org) server a
-Gobi harness (`gobi-harness`) can hand work to. One process, one port, one tunnel, one config file (`a2a.yaml`). Each
+One gateway in front of several coding agents, each an [A2A (Agent2Agent)](https://a2a-protocol.org) server a
+Gobi harness (`gobi-harness`) can hand work to. A2A is the open, vendor-neutral standard for agent-to-agent
+communication, hosted by the Linux Foundation's Agentic AI Foundation; this gateway implements **A2A 1.0**, documented in
+**[docs/protocol.md](docs/protocol.md)**. One process, one port, one tunnel, one config file (`a2a.yaml`). Each
 agent is mounted under its own name:
 
 | Agent | Path | What it runs | State |
 |---|---|---|---|
-| `claude` | `/claude` | Claude Code, through the Claude Agent SDK | **on by default**, complete (from `gobi-harness/a2a/claude`) |
+| `claude` | `/claude` | Claude Code, through the Claude Agent SDK | **on by default**, complete (formerly `gobi-harness/a2a/claude`) |
 | `cursor` | `/cursor` | Cursor's agent CLI (`cursor-agent --print`) | scaffold, off by default |
 | `aider` | `/aider` | Aider (`aider --message`) | scaffold, off by default |
 | `omp` | `/omp` | omp, oh-my-pi (`omp -p`) | scaffold, off by default |
@@ -16,9 +18,10 @@ for example `https://you.ngrok.app/claude`. All agents can sit behind the same t
 
 ## The A2A protocol
 
-**A2A (Agent2Agent) is an open standard for agents to talk to each other.** Google introduced it, it is now developed
-in the open under the Linux Foundation, and its spec and SDKs are at <https://a2a-protocol.org>. Nothing about it is
-Gobi-specific. Any A2A client can call the agents behind this gateway, and a Gobi harness can call any A2A agent,
+**A2A (Agent2Agent) is an open standard for agents to talk to each other.** Google introduced it in 2025 and donated
+it to the Linux Foundation; since August 2026 it is a hosted project of the Linux Foundation's **Agentic AI Foundation
+(AAIF)**, alongside MCP. The specification and SDKs are at **<https://a2a-protocol.org>** and
+<https://github.com/a2aproject>. Nothing about it is Gobi-specific. Any A2A client can call the agents behind this gateway, and a Gobi harness can call any A2A agent,
 whoever built it and whatever it is written in.
 
 The full reference is **[docs/protocol.md](docs/protocol.md)**: every endpoint, every request and response as captured
@@ -36,6 +39,10 @@ gateway speaks A2A **1.0** over **JSON-RPC 2.0**:
 | **Cancellation** | `CancelTask {id}` stops the run; the task becomes `CANCELED` ([§8.6](docs/protocol.md#86-cancellation)) |
 | **Model and effort** | `{"model": ..., "effort": "low"\|...\|"max"}` in the message's metadata, for that run only ([§9.1](docs/protocol.md#91-in-choosing-the-model-and-effort-for-one-run)) |
 | **Cost** | `cost_usd`, `usage`, `turns`, `model`, `effort` in the final status message's metadata ([§9.2](docs/protocol.md#92-out-what-the-run-cost)) |
+
+Method names are A2A 1.0's (`SendMessage`, `GetTask`, ...). The slash names of pre-1.0 drafts (`tasks/send`,
+`tasks/get`, `message/send`, ...) are not served and get `-32601`; the mapping is in
+[§7.8](docs/protocol.md#78-method-names-from-earlier-versions-taskssend-tasksget-).
 
 Task states: `SUBMITTED` → `WORKING` → `COMPLETED` | `FAILED` | `CANCELED`, or `SUBMITTED` → `REJECTED` when a task
 is refused before it runs ([§8](docs/protocol.md#8-task-lifecycle)).
@@ -247,7 +254,7 @@ the Gobi harness sends it, so a change that would make the reference wrong fails
 - Tasks and Claude sessions live in memory, so a restart forgets them. The folders stay.
 - A steer to a running task is queued, not acted on mid-run: it runs when the current run ends. To change course
   at once, cancel and send a new task in the same context.
-- **Known bug, inherited from `gobi-harness/a2a/claude`:** if a steer is queued when `CancelTask` arrives, the cancel
+- **Known bug, inherited from the original `gobi-harness/a2a/claude`:** if a steer is queued when `CancelTask` arrives, the cancel
   answers `CANCELED`, but the steer still runs afterwards and the task ends `COMPLETED`. Work, and cost, happen after a
   cancel. See [docs/protocol.md §13](docs/protocol.md#13-known-deviations-and-limits); an `xfail` test tracks it.
 - Text in, text out. Files an agent writes stay in its folder.

@@ -15,7 +15,7 @@ in raw JSON, so if the server changes, a test fails before the reference goes st
 4. [Endpoints](#4-endpoints)
 5. [The Agent Card](#5-the-agent-card)
 6. [Data model](#6-data-model)
-7. [Methods](#7-methods): `SendMessage`, `SendStreamingMessage`, `GetTask`, `ListTasks`, `CancelTask`, `SubscribeToTask`, unsupported
+7. [Methods](#7-methods): `SendMessage`, `SendStreamingMessage`, `GetTask`, `ListTasks`, `CancelTask`, `SubscribeToTask`, unsupported, pre-1.0 names
 8. [Task lifecycle](#8-task-lifecycle): states, contexts, polling, streaming, steering, cancellation
 9. [Metadata: model, effort, and cost](#9-metadata-model-effort-and-cost)
 10. [Errors](#10-errors)
@@ -30,10 +30,18 @@ in raw JSON, so if the server changes, a test fails before the reference goes st
 
 **A2A (Agent2Agent) is an open, vendor-neutral protocol for agents to talk to each other.** One agent (the *client*)
 hands work to another (the *remote agent*), follows it, steers it and stops it, without knowing how the remote agent is
-built: its framework, its model, its tools, or the language it is written in. Google introduced A2A in 2025 and gave it
-to the Linux Foundation, where it is developed in the open. The specification, its schemas and the official SDKs
-(Python, JavaScript, Java, Go, .NET) are at **<https://a2a-protocol.org>** and
-**<https://github.com/a2aproject>**.
+built: its framework, its model, its tools, or the language it is written in.
+
+**Governance.** Google introduced A2A in April 2025 and donated it to the **Linux Foundation** in June 2025. In August
+2026 it became a hosted project of the Linux Foundation's **Agentic AI Foundation (AAIF)**, next to the Model Context
+Protocol (MCP): MCP connects an agent to its tools and data, and A2A connects agents to each other. Version **1.0**
+(2026) added version negotiation (the `A2A-Version` header, §3.2), multiple protocol bindings, multi-tenancy and signed
+Agent Cards. The normative specification, its schemas and the official SDKs (Python, JavaScript, Java, Go, .NET) are at:
+
+- **<https://a2a-protocol.org>**: the specification, the canonical source for everything on this page
+- **<https://github.com/a2aproject>**: the spec repository and the SDKs (this gateway runs on `a2a-sdk` for Python)
+
+Where this page and the specification disagree, the specification wins, and this page has a bug.
 
 Because it is a standard, nothing on this page is Gobi-specific except §9's metadata keys. Any A2A client can call the
 agents behind this gateway, and a Gobi harness can call any A2A agent that meets the checklist in §12.1, whoever wrote it.
@@ -472,6 +480,30 @@ it ends. On a task that has already ended: `-32004` "Task ... is in terminal sta
 | `CreateTaskPushNotificationConfig`, `GetTaskPushNotificationConfig`, `ListTaskPushNotificationConfigs`, `DeleteTaskPushNotificationConfig` | `-32003` push notifications are not supported |
 | `GetExtendedAgentCard` | `-32004` the agent does not support authenticated extended cards |
 | anything else | `-32601` Method not found |
+
+### 7.8 Method names from earlier versions (`tasks/send`, `tasks/get`, ...)
+
+Drafts of A2A before 1.0 named the JSON-RPC methods with slashes, and much older material (blog posts, early SDKs) still
+uses those names. **1.0 renamed them, and this gateway serves only the 1.0 names.** An old name gets `-32601` "Method
+not found", with or without the `A2A-Version` header. A client written for an earlier draft must move to the names
+below and send `A2A-Version: 1.0`.
+
+| 1.0 (served here) | 0.2 / 0.3 | 0.1 |
+|---|---|---|
+| `SendMessage` | `message/send` | `tasks/send` |
+| `SendStreamingMessage` | `message/stream` | `tasks/sendSubscribe` |
+| `GetTask` | `tasks/get` | `tasks/get` |
+| `ListTasks` | | |
+| `CancelTask` | `tasks/cancel` | `tasks/cancel` |
+| `SubscribeToTask` | `tasks/resubscribe` | `tasks/resubscribe` |
+| `CreateTaskPushNotificationConfig`, `GetTaskPushNotificationConfig`, `ListTaskPushNotificationConfigs`, `DeleteTaskPushNotificationConfig` | `tasks/pushNotificationConfig/set`, `/get`, `/list`, `/delete` | `tasks/pushNotification/set`, `/get` |
+| `GetExtendedAgentCard` | `agent/getAuthenticatedExtendedCard` | |
+
+The data changed with the names. In 1.0, enums are upper-case protobuf names (`ROLE_USER`, `TASK_STATE_COMPLETED`)
+where earlier drafts used lower-case strings (`user`, `completed`, `input-required`), parts are `{"text": ...}` rather
+than `{"kind": "text", "text": ...}`, and the card's endpoints moved into `supportedInterfaces` (§5). The card itself is
+at `/.well-known/agent-card.json`; the earliest drafts used `/.well-known/agent.json`, which this gateway does not
+serve (`404` with a token; without one, `401`, because only `agent-card.json` is public).
 
 ## 8. Task lifecycle
 

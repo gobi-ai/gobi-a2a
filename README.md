@@ -106,6 +106,9 @@ export A2A_PUBLIC_URL=https://<machine>.<tailnet>.ts.net   # or https://<random-
 .venv/bin/gobi-a2a                                         # listens on 127.0.0.1:8000
 ```
 
+It ends its start-up output with an **Agent URLs ready** block: each agent's address for the Gobi app, and the token,
+masked ([what it looks like](#on-your-computer-the-address-and-the-token)).
+
 From another terminal, check it end to end through the tunnel. The card is public and names
 `$A2A_PUBLIC_URL/claude/` as where to send work:
 
@@ -124,19 +127,99 @@ account. The CLI agents sign in the same way their programs do on this machine.
 ## Connecting to Gobi App
 
 Once the gateway is running and reachable through its tunnel ([Quick start](#quick-start) steps 1 to 3), add each
-agent to your Gobi personal agent as a **Remote agent** worker. You need two things:
+agent to your Gobi personal agent as a **Remote agent** worker. You need two things, and both come from the terminal:
 
 | | Value | Example |
 |---|---|---|
-| **Address** | `<A2A_PUBLIC_URL>/<agent>` | `https://my-mac.tail1234.ts.net/claude` |
-| **Token** | the gateway's bearer token, `$A2A_TOKEN` (from `gobi-a2a token`) | `echo $A2A_TOKEN` |
+| **A · Address** | `<A2A_PUBLIC_URL>/<agent>`, printed by `gobi-a2a` under *Agent URLs ready* | `https://my-mac.tail1234.ts.net/claude` |
+| **B · Token** | the gateway's bearer token, `$A2A_TOKEN` (made by `gobi-a2a token`) | `3f9c2a1b…5d8eb7e1` (48 hex characters) |
 
-Before you open the app, check that the Agent Card answers through the tunnel. If this fails, the app's look-up
-will fail the same way:
+### On your computer: the address and the token
 
-```sh
-curl -s https://<machine>.<tailnet>.ts.net/claude/.well-known/agent-card.json
+Start the tunnel, then the gateway. When the gateway starts, it prints the configuration, then an **Agent URLs ready**
+block that lists each enabled agent's address and the token, masked:
+
+<p align="center"><img src="docs/images/terminal-session.svg" alt="Terminal: tailscale funnel --bg 8000, then gobi-a2a printing the Agent URLs block" width="100%"></p>
+
+The same session as text (here with `cursor` enabled as well as `claude`):
+
+```console
+~/gobi-a2a $ tailscale funnel --bg 8000
+Available on the internet:
+
+https://my-mac.tail1234.ts.net
+|-- / proxy http://127.0.0.1:8000
+
+Funnel started and running in the background.
+To disable the proxy, run: tailscale funnel --https=443 off
+
+~/gobi-a2a $ export A2A_PUBLIC_URL=https://my-mac.tail1234.ts.net
+~/gobi-a2a $ .venv/bin/gobi-a2a
+2026-11-13 17:15:23,709 INFO gobi_a2a: config /Users/you/gobi-a2a/a2a.yaml
+gateway  listens on 127.0.0.1:8000, reached at https://my-mac.tail1234.ts.net, bearer token set
+claude   https://my-mac.tail1234.ts.net/claude  workdir=/Users/you/gobi-a2a/work/claude  model=claude-opus-5-5 effort=- permission_mode=default max_turns=none
+cursor   https://my-mac.tail1234.ts.net/cursor  workdir=/Users/you/gobi-a2a/work/cursor  command=cursor-agent
+aider    disabled
+omp      disabled
+
+Agent URLs ready. In the Gobi app: Workers > gear > Remote agent, add each address with the token:
+  • Claude Code   https://my-mac.tail1234.ts.net/claude
+  • Cursor Agent  https://my-mac.tail1234.ts.net/cursor
+    Bearer token  3f9c…b7e1  (the full one is gateway.token: echo $A2A_TOKEN)
+2026-11-13 17:15:23,709 INFO gobi_a2a: mounted claude at /claude (bearer)
+2026-11-13 17:15:23,710 INFO gobi_a2a: mounted cursor at /cursor (bearer)
+INFO:     Started server process [81533]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
 ```
+
+- `gobi-a2a check` prints the same configuration and Agent URLs block without starting anything, so you can run it
+  again later to see the addresses.
+- The gateway only prints the token **masked** (first and last four characters), so it does not end up in logs or a
+  shared screen. Use the masked form to check that you are copying the right token. The full token is
+  `$A2A_TOKEN` in the shell where you started the gateway. An agent with its own `token:` in `a2a.yaml` shows its own
+  masked token on its line.
+- If `A2A_PUBLIC_URL` is not set, the block lists `http://127.0.0.1:8000/...` addresses and ends with
+  `! http://127.0.0.1:8000 is not https: Gobi only calls public https addresses`. Set it to the tunnel's address and
+  restart the gateway.
+- Tailscale's own wording differs a little between versions. What matters is the `https://…ts.net` line, which is
+  your `A2A_PUBLIC_URL`. `tailscale funnel status` prints it again.
+
+Before you open the app, check from a second terminal that the Agent Card answers through the tunnel. If this
+fails, the app's look-up will fail the same way:
+
+```console
+~/gobi-a2a $ curl -s https://my-mac.tail1234.ts.net/claude/.well-known/agent-card.json | python3 -m json.tool | head -3
+{
+    "name": "Claude Code",
+    "description": "Claude Code working in its own folder: code, files and web research.",
+```
+
+### From the terminal to the app
+
+<p align="center"><img src="docs/images/terminal-to-app.svg" alt="Copy the address (A) and the token (B) from the terminal into the Gobi app's Remote agent screen" width="100%"></p>
+
+1. **A · Copy the address.** In the *Agent URLs ready* block, select the agent's address, e.g.
+   `https://my-mac.tail1234.ts.net/claude`, and copy it. In the app, paste it into **Address** on the **Remote agent**
+   screen ([step 5](#step-by-step)) and tap **Look it up**.
+2. **B · Copy the token** in full. It is never printed by the gateway, so print it yourself:
+
+   ```console
+   ~/gobi-a2a $ echo $A2A_TOKEN
+   3f9c2a1b7d4e60f58a9c1e2d3b4a5f6e7c8d9a0b5d8eb7e1
+   ~/gobi-a2a $ printf %s "$A2A_TOKEN" | pbcopy        # macOS: on the clipboard, without a trailing newline
+   ```
+
+   In the app, paste it into **Token** ([step 7](#step-by-step)) and tap **Add**.
+3. **Getting it onto the phone.** With a Mac and an iPhone on the same Apple Account, *Universal Clipboard* makes
+   what `pbcopy` copied available to paste on the phone. Otherwise use your password manager, or show the token as a
+   QR code and scan it with the phone's camera: `qrencode -t ansiutf8 "$A2A_TOKEN"` (`brew install qrencode`). Do not
+   send the token through chat or email: anyone who has it and the address can run your agents.
+4. Do the same for each other address in the block (`/cursor`, ...). The token is the same unless that agent has
+   its own.
+
+### How the pieces connect
 
 <p align="center"><img src="docs/images/connection-flow.svg" alt="Gobi app to Gobi harness to the https tunnel to gobi-a2a to Claude Code" width="100%"></p>
 
@@ -164,14 +247,14 @@ swap in real screenshots.
 
 **Add the agent**
 
-5. In **Address**, enter the agent's address: `https://<machine>.<tailnet>.ts.net/claude` with Tailscale Funnel, or
+5. In **Address**, paste the agent's address (**A** from the terminal): `https://<machine>.<tailnet>.ts.net/claude` with Tailscale Funnel, or
    `https://<random-words>.trycloudflare.com/claude` with a Cloudflare quick tunnel. Include the agent's path
    (`/claude`, `/cursor`, ...): the bare domain is the gateway itself, not an agent, and has no Agent Card.
 6. Tap **Look it up**. Gobi reads the agent's public Agent Card and shows **What it says it is**: *Claude Code*, its
    description and skill, and a **Changes things** badge. A remote agent can do whatever it can on your computer, so
    your agent starts it only when you ask for it in your own message.
 7. Check the **Name** (filled in from the card, e.g. `claude-code`; lowercase letters, digits and hyphens, starting
-   with a letter). It is how your agent and the Workers page refer to it. Then paste your **Token**, the value of
+   with a letter). It is how your agent and the Workers page refer to it. Then paste your **Token** (**B**), the value of
    `$A2A_TOKEN`. It is sent only to this agent and never shown again. The Token field appears because the card
    declares HTTP Bearer; with `no_auth: true` there is none.
 8. Tap **Add**. A toast says *Added claude-code*, and the agent is listed under **Yours** in Worker settings.
@@ -216,7 +299,7 @@ gave that agent its own `token:` in `a2a.yaml`.
 
 ```sh
 gobi-a2a [serve] [-c a2a.yaml] [--host H] [--port P]   # start the gateway (serve is the default)
-gobi-a2a check   [-c a2a.yaml]                         # check the config; print each agent's address and settings
+gobi-a2a check   [-c a2a.yaml]                         # check the config; print each agent's address, settings, and what to enter in Gobi
 gobi-a2a token                                         # print a new random bearer token
 python -m gobi_a2a ...                                 # the same
 ```

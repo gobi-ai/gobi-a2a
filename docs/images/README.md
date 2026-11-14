@@ -2,13 +2,16 @@
 
 The pictures in the main [README](../README.md#connecting-to-gobi-app)'s **Connecting to Gobi App** section.
 
-The phone screens are **wireframes**, not screenshots. They follow the Gobi app's Workers pages as of
+The terminal images show `gobi-a2a`'s real output (only the token and paths are examples). The phone screens are
+**wireframes**, not screenshots. They follow the Gobi app's Workers pages as of
 [gobi-app#1147](https://github.com/gobi-ai/gobi-app/pull/1147) (`lib/scenes/main/explore/agent_workers_page.dart`),
 with the same labels and order. Orange numbered outlines mark what to tap, and the numbers match the README's steps.
 
 | File | Screen | README step |
 |---|---|---|
 | `connection-flow.svg` | Diagram: Gobi app → Gobi harness → https tunnel → gobi-a2a → Claude Code | overview |
+| `terminal-session.svg` | Terminal: `tailscale funnel --bg 8000`, then `gobi-a2a` and its *Agent URLs ready* block | on your computer |
+| `terminal-to-app.svg` | The address (A) and token (B) copied from the terminal into **Remote agent** | terminal to app |
 | `01-personal-agent-menu.svg` | Personal agent chat, the title pill's menu open | 1–2: title pill ▸ **Workers** |
 | `02-workers.svg` | **Workers**, nothing running | 3: gear ▸ **Worker settings** |
 | `03-worker-settings.svg` | **Worker settings**, nothing under Yours | 4: **Remote agent** |

@@ -1,7 +1,8 @@
 """The `gobi-a2a` command.
 
     gobi-a2a [serve] [-c a2a.yaml] [--host H] [--port P]    start the gateway (uvicorn)
-    gobi-a2a check   [-c a2a.yaml]                          check the config, print each agent's address
+    gobi-a2a check   [-c a2a.yaml]                          check the config, print each agent's address and what to
+                                                            enter in the Gobi app
     gobi-a2a token                                          print a new random bearer token
 
 The config is -c/--config, else $GOBI_A2A_CONFIG, else ./a2a.yaml.
@@ -55,6 +56,35 @@ def describe(cfg: Config) -> str:
     return "\n".join(lines)
 
 
+def masked(token: str) -> str:
+    """Enough of a token to tell which one it is, not enough to use it."""
+    return f"{token[:4]}…{token[-4:]}" if len(token) >= 16 else "*" * 8
+
+
+def gobi_app(cfg: Config) -> str:
+    """What to enter in the Gobi app, per enabled agent: its address, and the token it wants (masked)."""
+    gw = cfg.gateway
+    agents = {name: cfg.agents[name].name or getattr(AGENTS[name], "NAME", name) for name in AGENTS if cfg.agents[name].enabled}
+    if not agents:
+        return "No agent is enabled: set enabled: true on one in a2a.yaml."
+    tokens = {name: cfg.token(name) for name in agents}
+    shared = len(set(tokens.values())) == 1
+    width = max(len("Bearer token"), *(len(label) for label in agents.values()))
+    lines = ["Agent URLs ready. In the Gobi app: Workers > gear > Remote agent, add each address with the token:"]
+    for name, label in agents.items():
+        own = "" if shared else f"  token {masked(tokens[name]) if tokens[name] else 'none'}"
+        lines.append(f"  • {label:<{width}}  {gw.url}/{name}{own}")
+    token = next(iter(tokens.values()))
+    if shared and token:
+        lines.append(f"    {'Bearer token':<{width}}  {masked(token)}  (the full one is gateway.token: echo $A2A_TOKEN)")
+    elif shared:
+        lines.append(f"    {'Bearer token':<{width}}  none: anyone with the address can use these agents (local testing only)")
+    if not gw.url.startswith("https://"):
+        lines.append(f"  ! {gw.url} is not https: Gobi only calls public https addresses. "
+                     "Set A2A_PUBLIC_URL to your tunnel's address and run this again.")
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] not in ("serve", "check", "token", "-h", "--help", "--version"):
@@ -71,6 +101,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(f"gobi-a2a: {path}: {e}")
     if cmd == "check":
         print(describe(cfg))
+        print()
+        print(gobi_app(cfg))
         return
 
     import uvicorn
@@ -83,5 +115,5 @@ def main(argv: list[str] | None = None) -> None:
         cfg.gateway.port = args.port
     level = cfg.gateway.log_level.upper()
     logging.basicConfig(level=getattr(logging, level, logging.INFO), format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-    logging.getLogger("gobi_a2a").info("config %s\n%s", cfg.path, describe(cfg))
+    logging.getLogger("gobi_a2a").info("config %s\n%s\n\n%s", cfg.path, describe(cfg), gobi_app(cfg))
     uvicorn.run(create_app(cfg), host=cfg.gateway.host, port=cfg.gateway.port, log_level=cfg.gateway.log_level.lower())

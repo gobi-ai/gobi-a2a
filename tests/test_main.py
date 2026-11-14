@@ -71,3 +71,34 @@ def test_the_installed_command_and_python_dash_m_work():
     exe = Path(sys.executable).parent / "gobi-a2a"
     assert subprocess.run([str(exe), "check", "-c", str(ROOT / "a2a.example.yaml")], capture_output=True, text=True,
                           env={"A2A_TOKEN": "x", "PATH": "/usr/bin:/bin"}).returncode == 0
+
+
+TOKEN = "3f9c2a1b" + "0" * 32 + "5d8eb7e1"
+
+
+def test_check_says_what_to_enter_in_the_gobi_app_without_printing_the_token(tmp_path, capsys):
+    p = tmp_path / "a2a.yaml"
+    p.write_text(f"gateway: {{token: {TOKEN}, public_url: 'https://my-mac.tail1234.ts.net/'}}\n"
+                 "agents: {cursor: {enabled: true}}\n")
+    cli.main(["check", "-c", str(p)])
+    out = capsys.readouterr().out
+    assert "Workers > gear > Remote agent" in out
+    assert re.search(r"• Claude Code +https://my-mac\.tail1234\.ts\.net/claude\n", out)
+    assert re.search(r"• Cursor Agent +https://my-mac\.tail1234\.ts\.net/cursor\n", out)
+    assert re.search(r"Bearer token +3f9c…b7e1 ", out) and TOKEN not in out and "not https" not in out
+
+
+def test_check_names_each_agents_own_token_and_warns_when_gobi_cannot_reach_it(tmp_path, capsys):
+    p = tmp_path / "a2a.yaml"
+    p.write_text(f"gateway: {{token: {TOKEN}}}\nagents: {{aider: {{enabled: true, token: short}}}}\n")
+    cli.main(["check", "-c", str(p)])
+    out = capsys.readouterr().out
+    assert "http://127.0.0.1:8000/claude  token 3f9c…b7e1" in out and "http://127.0.0.1:8000/aider  token ********" in out
+    assert "Bearer token" not in out and "is not https: Gobi only calls public https addresses" in out
+
+
+def test_check_says_when_there_is_no_token_at_all(tmp_path, capsys):
+    p = tmp_path / "a2a.yaml"
+    p.write_text("gateway: {no_auth: true, public_url: 'https://x.trycloudflare.com'}\n")
+    cli.main(["check", "-c", str(p)])
+    assert "none: anyone with the address can use these agents" in capsys.readouterr().out

@@ -1,13 +1,14 @@
 # docs/images
 
-The pictures in the main [README](../README.md#connecting-to-gobi-app)'s **Connecting to Gobi App** section.
+The pictures in [Connecting to Gobi App](../connecting-gobi-app.md) (two of them also appear in the main
+[README](../../README.md)).
 
 The terminal images show `gobi-a2a`'s real output (only the token and paths are examples). The phone screens are
 **wireframes**, not screenshots. They follow the Gobi app's Workers pages as of
 [gobi-app#1147](https://github.com/gobi-ai/gobi-app/pull/1147) (`lib/scenes/main/explore/agent_workers_page.dart`),
-with the same labels and order. Orange numbered outlines mark what to tap, and the numbers match the README's steps.
+with the same labels and order. Orange numbered outlines mark what to tap, and the numbers match the walkthrough's steps.
 
-| File | Screen | README step |
+| File | Screen | Walkthrough step |
 |---|---|---|
 | `connection-flow.svg` | Diagram: Gobi app → Gobi harness → https tunnel → gobi-a2a → Claude Code | overview |
 | `terminal-session.svg` | Terminal: `tailscale funnel --bg 8000`, then `gobi-a2a` and its *Agent URLs ready* block | on your computer |
@@ -26,8 +27,8 @@ with the same labels and order. Orange numbered outlines mark what to tap, and t
    masked, but your agent's name, tasks, and a tailnet address can show.
 2. Crop it to the screen, and keep it under about 300 KB (`pngquant` or `sips -Z 1200` helps).
 3. Save it here with the **same name** and a `.png` extension, for example `03-worker-settings.png`.
-4. In `../README.md`, change that `<img src="docs/images/03-worker-settings.svg" ...>` to `.png`, and delete the
-   `.svg`.
+4. In `../connecting-gobi-app.md` (and `../../README.md`, for the two it shows), change that
+   `<img src="images/03-worker-settings.svg" ...>` to `.png`, and delete the `.svg`.
 
 Keep the `width="240"` on phone screens so the three-across rows still fit. If the app's labels change, update the
-README's steps and this table at the same time.
+walkthrough's steps and this table at the same time.

@@ -1,0 +1,16 @@
+# local config: holds (or points at) the bearer token
+a2a.yaml
+.env
+
+# agent workspaces
+work/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.DS_Store

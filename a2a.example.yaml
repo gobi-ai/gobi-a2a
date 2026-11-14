@@ -1,0 +1,64 @@
+# gobi-a2a: copy to a2a.yaml (which git ignores) and edit.
+#   cp a2a.example.yaml a2a.yaml
+#
+# Any string may name environment variables: ${NAME} or ${NAME:-fallback}. An empty value is the same as leaving the
+# key out. Relative paths are relative to this file's folder.
+
+gateway:
+  host: 127.0.0.1                 # behind ngrok / a tunnel, 127.0.0.1 is enough; 0.0.0.0 to listen on every interface
+  port: 8000
+  public_url: ${A2A_PUBLIC_URL}   # the tunnel's https URL; Agent Cards name it. Unset: http://host:port
+  token: ${A2A_TOKEN}             # the bearer token Gobi presents: `gobi-a2a token` makes one
+  no_auth: false                  # true runs with no token: local testing only, never behind a tunnel
+  workdir: ./work                 # each agent gets <workdir>/<agent>, each A2A conversation a folder under that
+  log_level: info
+
+agents:
+  # Claude Code through the Claude Agent SDK. Signs in as Claude Code does on this machine (ANTHROPIC_API_KEY or its
+  # own login).
+  claude:
+    enabled: true
+    # name: Claude Code
+    # description: Claude Code working in its own folder: code, files and web research.
+    model: claude-opus-5-5        # a message may pick another: {"model": ...} in its metadata
+    effort:                       # low|medium|high|xhigh|max; empty: Claude Code's default. A message may pick another
+    thinking:                     # adaptive|disabled|<token budget>; empty: Claude Code's default
+    # Nobody is there to approve a tool: only allowed_tools run, any other is refused. No Bash by default.
+    allowed_tools: [Read, Glob, Grep, Write, Edit, WebSearch, WebFetch]
+    # default|acceptEdits|plan|bypassPermissions|dontAsk|auto. bypassPermissions runs EVERY tool, Bash included,
+    # whatever allowed_tools says: only where Claude may do anything the account running the gateway can.
+    permission_mode: default
+    max_turns:                    # empty: no limit, a run goes until Claude is done
+    system_prompt:                # added to Claude Code's own
+    # token:                      # this agent's own bearer token instead of the gateway's
+    # workdir: ~/a2a-claude-work  # instead of <gateway.workdir>/claude
+
+  # The scaffolds below run a command line agent once per task, in the conversation's folder: each printed line is a
+  # progress note, the output is the result. `command` is an argv list (no shell); "{prompt}" is the task's text, or
+  # it is appended. model_args / effort_args are added when a model / effort is set here or by the message.
+
+  cursor:                         # Cursor's agent CLI: https://cursor.com/cli
+    enabled: false
+    command: [cursor-agent, --print, --output-format, text]   # add --force to let it change files and run commands
+    model:
+    model_args: [--model, "{model}"]
+    timeout:                      # seconds; empty: no limit
+    env: {}                       # e.g. CURSOR_API_KEY: ${CURSOR_API_KEY}
+
+  aider:                          # https://aider.chat
+    enabled: false
+    command: [aider, --yes-always, --no-pretty, --no-stream, --no-check-update, --message, "{prompt}"]
+    model:                        # e.g. sonnet, gpt-5; empty: aider's default
+    model_args: [--model, "{model}"]
+    timeout:
+    env: {}                       # e.g. ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+
+  omp:                            # oh-my-pi, the pi coding agent: check `omp --help` for your version's flags
+    enabled: false
+    command: [omp, -p, "{prompt}"]
+    model:
+    model_args: [--model, "{model}"]
+    effort:
+    effort_args: [--thinking, "{effort}"]
+    timeout:
+    env: {}

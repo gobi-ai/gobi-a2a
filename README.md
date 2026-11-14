@@ -14,6 +14,36 @@ agent is mounted under its own name:
 The Gobi app takes one **address** per worker. With the gateway, each agent's address is `https://<your-domain>/<agent>`,
 for example `https://you.ngrok.app/claude`. All agents can sit behind the same tunnel and token.
 
+## The A2A protocol
+
+**A2A (Agent2Agent) is an open standard for agents to talk to each other.** Google introduced it, it is now developed
+in the open under the Linux Foundation, and its spec and SDKs are at <https://a2a-protocol.org>. Nothing about it is
+Gobi-specific. Any A2A client can call the agents behind this gateway, and a Gobi harness can call any A2A agent,
+whoever built it and whatever it is written in.
+
+The full reference is **[docs/protocol.md](docs/protocol.md)**: every endpoint, every request and response as captured
+from this gateway, the task lifecycle, errors, the REST binding, and how to build a third-party agent. In short, this
+gateway speaks A2A **1.0** over **JSON-RPC 2.0**:
+
+| | How |
+|---|---|
+| **Discovery** | `GET /<agent>/.well-known/agent-card.json`: the Agent Card, public. Its name, description, skills, where to send work (`<public_url>/<agent>/`), and that it wants HTTP Bearer ([§5](docs/protocol.md#5-the-agent-card)) |
+| **Every call** | `POST /<agent>/`, headers `Authorization: Bearer <token>` and **`A2A-Version: 1.0`** (required: without it the call fails with `-32009`), body `{"jsonrpc": "2.0", "id": ..., "method": ..., "params": ...}` ([§3](docs/protocol.md#3-transport-http-headers-json-rpc-envelope)) |
+| **Task creation** | `SendMessage` with a new message. `configuration.returnImmediately: true` answers at once with the task in `SUBMITTED`. A `contextId` continues a conversation: same folder, same Claude session ([§7.1](docs/protocol.md#71-sendmessage-create-a-task-continue-a-conversation-or-steer-a-task)) |
+| **Polling** | `GetTask {id}` until the state is terminal. `status.message` is the latest progress note, then the final answer ([§7.3](docs/protocol.md#73-gettask-poll-a-task), [§8.3](docs/protocol.md#83-polling)) |
+| **Streaming** | `SendStreamingMessage` / `SubscribeToTask`: Server-Sent Events, each `data:` line a JSON-RPC response carrying a `task`, `statusUpdate` or `artifactUpdate` ([§7.2](docs/protocol.md#72-sendstreamingmessage-create-a-task-and-stream-it)) |
+| **Steering** | `SendMessage` with the running task's `taskId`. It is queued and runs when the current run ends, on the same session ([§8.5](docs/protocol.md#85-steering)) |
+| **Cancellation** | `CancelTask {id}` stops the run; the task becomes `CANCELED` ([§8.6](docs/protocol.md#86-cancellation)) |
+| **Model and effort** | `{"model": ..., "effort": "low"\|...\|"max"}` in the message's metadata, for that run only ([§9.1](docs/protocol.md#91-in-choosing-the-model-and-effort-for-one-run)) |
+| **Cost** | `cost_usd`, `usage`, `turns`, `model`, `effort` in the final status message's metadata ([§9.2](docs/protocol.md#92-out-what-the-run-cost)) |
+
+Task states: `SUBMITTED` → `WORKING` → `COMPLETED` | `FAILED` | `CANCELED`, or `SUBMITTED` → `REJECTED` when a task
+is refused before it runs ([§8](docs/protocol.md#8-task-lifecycle)).
+
+**Building your own agent** for Gobi, in any language: [§12](docs/protocol.md#12-implementing-a-third-party-agent)
+lists what the harness needs. [`examples/echo_agent.py`](examples/echo_agent.py) is a complete standalone agent of
+about 100 lines, on the open-source A2A SDK alone, and `tests/test_protocol.py` checks it the way the harness calls it.
+
 ## Quick start
 
 ```sh
@@ -137,13 +167,17 @@ The harness (`gobi-harness/engine/a2a.py`) is given an address and nothing else:
 only talks to public https addresses. If the tunnel URL changes (a free ngrok URL changes on each restart), update
 `A2A_PUBLIC_URL`, restart, and edit the worker's address in the app.
 
+The exact calls, headers and limits the harness uses (60 s per call, 2 MB per answer, polling every 2 to 15 s) are in
+[docs/protocol.md §12.1](docs/protocol.md#121-what-a-gobi-harness-needs-from-an-agent).
+
 ## Model and effort per task
 
 `model` and `effort` in `a2a.yaml` are defaults. A message can name its own for the run it starts, in its metadata.
 The request's metadata works too, and the message's wins:
 
 ```json
-{"message": {"role": "ROLE_USER", "parts": [{"text": "..."}], "metadata": {"model": "claude-sonnet-5", "effort": "low"}}}
+{"message": {"messageId": "m-1", "role": "ROLE_USER", "parts": [{"text": "..."}],
+             "metadata": {"model": "claude-sonnet-5", "effort": "low"}}}
 ```
 
 A follow-up in the same context, or a steer sent to the task itself, resumes the same Claude session on whatever it
@@ -163,7 +197,9 @@ and effort ran. The CLI scaffolds take the same `model` and `effort` metadata an
 | `GET /<agent>/.well-known/agent-card.json` | public | the agent's card |
 | `POST /<agent>/` | the agent's token | A2A JSON-RPC: `SendMessage`, `SendStreamingMessage`, `GetTask`, `CancelTask`, ... |
 
-Tokens are compared in constant time. A wrong or missing one gets `401` with `WWW-Authenticate: Bearer`.
+Tokens are compared in constant time. A wrong or missing one gets `401` with `WWW-Authenticate: Bearer`. A2A calls
+also need the header `A2A-Version: 1.0`. Each method's request and response is in
+[docs/protocol.md §7](docs/protocol.md#7-methods), with a curl cookbook in [§14](docs/protocol.md#14-curl-cookbook).
 
 ```sh
 curl -s -H "Authorization: Bearer $A2A_TOKEN" localhost:8000/ | python3 -m json.tool
@@ -184,6 +220,10 @@ gobi_a2a/
     cli.py         the command line agent executor the scaffolds share
     cursor.py, aider.py, omp.py
 tests/             pytest; Claude Code is a scripted run, the CLIs are tests/fake_agent.py
+  test_protocol.py the A2A wire protocol in raw JSON, as docs/protocol.md documents it
+docs/protocol.md   the A2A protocol reference
+examples/
+  echo_agent.py    a standalone third-party A2A agent (a2a-sdk only)
 ```
 
 **Adding an agent:** write `gobi_a2a/agents/<name>.py` with a `Config` (subclass `AgentConfig`, or `CLIConfig` for a
@@ -199,13 +239,17 @@ uv sync --extra dev && .venv/bin/pytest
 ```
 
 They replace Claude Code with a scripted run and the CLIs with `tests/fake_agent.py`, so they cost nothing and need none
-of the agents installed.
+of the agents installed. `tests/test_protocol.py` sends raw JSON-RPC, as the protocol reference documents it and as
+the Gobi harness sends it, so a change that would make the reference wrong fails a test.
 
 ## Limits
 
 - Tasks and Claude sessions live in memory, so a restart forgets them. The folders stay.
-- A message sent to a task that is still running waits until that run ends. To continue, send a new task in the same
-  context.
+- A steer to a running task is queued, not acted on mid-run: it runs when the current run ends. To change course
+  at once, cancel and send a new task in the same context.
+- **Known bug, inherited from `gobi-harness/a2a/claude`:** if a steer is queued when `CancelTask` arrives, the cancel
+  answers `CANCELED`, but the steer still runs afterwards and the task ends `COMPLETED`. Work, and cost, happen after a
+  cancel. See [docs/protocol.md §13](docs/protocol.md#13-known-deviations-and-limits); an `xfail` test tracks it.
 - Text in, text out. Files an agent writes stay in its folder.
 - The CLI scaffolds have no session of their own: a follow-up works in the same folder, and the program decides what it
   remembers from there.

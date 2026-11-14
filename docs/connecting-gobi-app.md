@@ -156,7 +156,7 @@ fails, the app's look-up will fail the same way:
 ## Step by step
 
 The numbers match the callouts on the screens below. The screens are wireframes of the app's Workers pages
-([gobi-app#1147](https://github.com/gobi-ai/gobi-app/pull/1147)); [images/README.md](images/README.md) says how to
+(`lib/scenes/main/explore/agent_workers_page.dart` in gobi-app); [images/README.md](images/README.md) says how to
 swap in real screenshots.
 
 **Open Workers from your personal agent**
@@ -165,7 +165,8 @@ swap in real screenshots.
    *Personal agent*). The agent's menu opens under it.
 2. Tap **Workers**. It is only in the menu of your own personal agent chat.
 3. On **Workers**, tap the **gear** at the top right: **Worker settings**.
-4. Under **Yours**, tap **Remote agent**.
+4. Below **Yours**, tap **Remote agent** (beside **New worker**). Gobi's own workers are listed under **From Gobi**
+   and cannot be changed.
 
 <table>
   <tr>
@@ -182,13 +183,14 @@ swap in real screenshots.
    the agent's path (`/claude`, `/cursor`, ...): the bare domain is the gateway itself, not an agent, and has no Agent
    Card.
 6. Tap **Look it up**. Gobi reads the agent's public Agent Card and shows **What it says it is**: *Claude Code*, its
-   description and skill, and a **Changes things** badge. A remote agent can do whatever it can on your computer, so
-   your agent starts it only when you ask for it in your own message.
+   description and its **Skills**. Under the card a notice says that a remote agent can do whatever it can, so your
+   agent starts it only when you ask for it in your own message.
 7. Check the **Name** (filled in from the card, e.g. `claude-code`; lowercase letters, digits and hyphens, starting
    with a letter). It is how your agent and the Workers page refer to it. Then paste your **Token** (**B**), the value
    of `$A2A_TOKEN`. It is sent only to this agent and never shown again. The Token field appears because the card
    declares HTTP Bearer; with `no_auth: true` there is none.
-8. Tap **Add**. A toast says *Added claude-code*, and the agent is listed under **Yours** in Worker settings.
+8. Tap **Add**. A toast says *Added claude-code*, and the agent is listed under **Yours** in Worker settings, with
+   the pills **Remote agent**, **Changes things** and **No runs this week**.
 
 <table>
   <tr>
@@ -206,11 +208,15 @@ gave that agent its own `token:` in `a2a.yaml`.
 - **Ask for it by name.** Your agent hands work to a remote agent only when your own message asks for it, for example
   *"Have claude-code fix the flaky upload test in ~/src/app"*. Each task is one A2A `SendMessage`; Gobi then polls it
   with `GetTask` (see [How Gobi Harness connects](#how-gobi-harness-connects)).
-- **Watch it on Workers.** While it works, the task is under **Running**, with the worker's name, when it started and
-  its latest progress line. Tapping a running task asks *Stop this worker?*; **Stop** sends `CancelTask`. The last
-  five that ended are under **Recently finished**, each with how it ended and its summary.
-- **Edit or remove it** from **Worker settings**: tap the worker. Its page shows this week's runs. **Enter it again**
-  replaces the token, **Read its card again** saves and re-reads the card (after you rename the agent or change its
+- **Watch it on Workers.** The top of the page counts what is **Running**, **Waiting** and **Done today**. Each task
+  at work is a card under **Running**: the worker, when it started, a **Running** (or **Waiting to start**) pill, and
+  its latest progress line. The **⊗** at the card's top right asks *Stop this worker?*; **Stop** sends `CancelTask`.
+  The last five that ended are under **Recently finished**, each with how it ended (**Done**, **Stopped to ask**,
+  **Failed**, **Stopped** or **Dropped**) and its summary.
+- **Edit or remove it** from **Worker settings**: tap the worker. Its page shows its pills, then **This week**: its
+  runs, average duration, when it was last active and its share of your week, and how its runs ended. A worker that
+  needs attention wears a **Needs a look** pill and says why at the top of its page. **Enter it again** (under
+  **Sign-in**) replaces the token, **Read its card again** saves and re-reads the card (after you rename the agent or change its
   description in `a2a.yaml`), and **Remove** deletes it. The address cannot be edited: if it changes (a Cloudflare
   quick tunnel gets a new one on each start), remove the worker and add it again with the new address.
 

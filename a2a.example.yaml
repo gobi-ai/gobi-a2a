@@ -75,14 +75,18 @@ agents:
 
   copilot:                        # GitHub Copilot CLI: npm install -g @github/copilot, or brew install copilot-cli
     enabled: false
-    # --allow-all-tools lets Copilot run its tools in the conversation's folder without asking, --no-ask-user keeps it
-    # from pausing for a question, --autopilot lets it keep going until the task is done. --allow-all (or --yolo) also
-    # lifts its path and URL checks: only where Copilot may do anything the account running the gateway can.
-    command: [copilot, "--prompt={prompt}", --silent, --no-color, --allow-all-tools, --no-ask-user, --autopilot]
-    model:                        # empty: Copilot's default; auto lets Copilot pick
+    # Unattended: --allow-all-tools lets Copilot run its tools in the conversation's folder without asking,
+    # --allow-all-urls lets it fetch from the web, --no-ask-user keeps it from pausing for a question, --autopilot lets
+    # it keep going until the task is done. --allow-all (or --yolo) also lifts its path check: only where Copilot may do
+    # anything the account running the gateway can.
+    command: [copilot, "--prompt={prompt}", --silent, --no-color, --allow-all-tools, --allow-all-urls, --no-ask-user,
+              --autopilot]
+    model:                        # empty: Copilot's default; auto lets Copilot pick. A message may pick another
     model_args: ["--model={model}"]
-    effort:                       # low|medium|high|xhigh|max; empty: Copilot's default
+    effort:                       # low|medium|high|xhigh|max; empty: Copilot's default. A message may pick another
     effort_args: ["--reasoning-effort={effort}"]
-    resume_args: ["--session-id={session}"]   # each conversation is one Copilot session; [] starts each task afresh
+    # Each conversation is one Copilot session, kept across restarts; a message's {"session": "<id>"|"new"} picks
+    # another. [] starts each task afresh.
+    resume_args: ["--session-id={session}"]
     timeout:
     env: {}                       # e.g. COPILOT_GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN} (else `copilot login`)

@@ -103,14 +103,17 @@ The defaults:
   assistant text), and the session id from its first line is kept so a follow-up runs with `--resume <session>`. omp
   signs in with `omp login` (a ChatGPT, Copilot or Gemini subscription, or an API key) and needs bun. Its thinking
   levels stop at `xhigh`.
-- **copilot:** `copilot --prompt=<prompt> --silent --no-color --allow-all-tools --no-ask-user --autopilot`, GitHub
-  Copilot CLI (`npm install -g @github/copilot` or `brew install copilot-cli`). `--silent` prints only the answer, which
-  is the result. Nobody is there to approve anything, and without permission flags `-p` denies every request that needs
-  it, so `--allow-all-tools` lets Copilot run its tools (shell, file writes) in the conversation's folder, `--no-ask-user`
-  keeps it from stopping to ask, and `--autopilot` lets it keep going until the task is done. `--allow-all` (or
-  `--yolo`) also lifts its path and URL checks, Copilot's counterpart to `bypassPermissions`. Copilot does not print a
-  session id here but takes one: the conversation's first task runs with a new UUID in `--session-id`, which starts
-  that session, and each follow-up with the same one. Model: `--model=<name>`, or `auto`. Copilot signs in with
+- **copilot:** `copilot --prompt=<prompt> --silent --no-color --allow-all-tools --allow-all-urls --no-ask-user
+  --autopilot`, GitHub Copilot CLI (`npm install -g @github/copilot` or `brew install copilot-cli`). `--silent` prints
+  only the answer, which is the result. Nobody is there to approve anything, and without permission flags `-p` denies
+  every request that needs it, so `--allow-all-tools` lets Copilot run its tools (shell, file writes) in the
+  conversation's folder, `--allow-all-urls` lets it fetch from the web, `--no-ask-user` keeps it from stopping to ask,
+  and `--autopilot` lets it keep going until the task is done (Copilot has no `--yes`). `--allow-all` (or `--yolo`) also
+  lifts its path check, Copilot's counterpart to `bypassPermissions`. Copilot does not print a session id here but
+  takes one: the conversation's first task runs with a new UUID in `--session-id`, which starts that session, and each
+  follow-up with the same one, after a gateway restart too. A failed run keeps the session, since the id stays good.
+  Model and effort: `--model=<name>` (`claude-sonnet-4.5`, `gpt-5`, `auto`, ...) and `--reasoning-effort=<level>`, from
+  `a2a.yaml` or the message ([below](#model-and-effort-per-task)). Copilot signs in with
   `copilot login`, or `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` in `env` (a fine-grained token with the *Copilot Requests*
   permission; classic `ghp_` tokens do not work). The `copilot` that VS Code's Copilot Chat puts on `PATH` is a shim,
   not the CLI. It asks to install the CLI and exits 0 even when a run fails, so the gateway leaves its folder off the
@@ -133,8 +136,20 @@ A follow-up in the same context, or a steer sent to the task itself, resumes the
 names. Anything it leaves out falls back to the server's default, not to what the previous run used. The Gobi harness
 sends the ticket's current choice with every message. A model that is not a model name, or an effort other than `low`,
 `medium`, `high`, `xhigh` or `max`, rejects the task before anything runs. The final status message says which model
-and effort ran. The CLI scaffolds take the same `model` and `effort` metadata and pass it through
-`model_args`/`effort_args`.
+and effort ran. The CLI scaffolds take the same `model` and `effort` metadata (`reasoning_effort` works as another
+name for `effort`) and pass it through `model_args`/`effort_args`, e.g. copilot's
+`--model=claude-sonnet-4.5 --reasoning-effort=high`.
+
+**Sessions (CLI scaffolds).** Each conversation's session is kept in `<workdir>/<agent>/.sessions/`, so a follow-up
+resumes it after a gateway restart as well. A message may pick it, in the same metadata: `"session": "<id>"` resumes
+that session (an exact id: one the agent listed, or one a task's final status metadata reported) and keeps it for the
+follow-ups; `"session": "new"` starts afresh. Anything else that is not a session id rejects the task. The final status
+message's metadata says which session ran (`"session"`).
+
+Tasks in one conversation take turns. A follow-up or a steer sent as a new task while one is running waits for it,
+saying so, then resumes the session the run before left, rather than racing it in the same folder and session. A
+message sent to the running task itself (its `taskId`) is held by the A2A server until that run ends, and the task
+has ended by then, so it does not run: steer with a new task in the same conversation (its `contextId`).
 
 ## Endpoints
 

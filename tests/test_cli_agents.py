@@ -223,11 +223,11 @@ def test_copilots_default_command_runs_one_prompt_unattended_and_names_its_sessi
     assert not c.enabled and c.model is None and c.effort is None
     s = CLISettings(workdir=Path("."), command=c.command, model_args=c.model_args, effort_args=c.effort_args,
                     resume_args=c.resume_args)
+    unattended = ["--silent", "--no-color", "--allow-all-tools", "--allow-all-urls", "--no-ask-user", "--autopilot"]
     assert s.argv("- fix it", model="gpt-5", effort="high", session="u-1") == [
-        "copilot", "--prompt=- fix it", "--silent", "--no-color", "--allow-all-tools", "--no-ask-user", "--autopilot",
-        "--model=gpt-5", "--reasoning-effort=high", "--session-id=u-1"], "the prompt is the value of --prompt=, one argument"
-    assert s.argv("go") == ["copilot", "--prompt=go", "--silent", "--no-color", "--allow-all-tools", "--no-ask-user",
-                            "--autopilot"]
+        "copilot", "--prompt=- fix it", *unattended, "--model=gpt-5", "--reasoning-effort=high", "--session-id=u-1"], \
+        "the prompt is the value of --prompt=, one argument"
+    assert s.argv("go") == ["copilot", "--prompt=go", *unattended]
     assert uuid.UUID(copilot.new_session()).version == 4 and copilot.new_session() != copilot.new_session()
 
 
@@ -257,18 +257,70 @@ async def test_copilots_output_is_the_result_and_a_follow_up_runs_with_the_same_
     await http.aclose()
 
 
-async def test_a_failed_copilot_follow_up_drops_its_session_and_a_failed_first_run_keeps_it(tmp_path):
+async def test_a_failed_copilot_run_keeps_its_session_and_the_metadata_names_it(tmp_path):
     client, http, app = await agent(tmp_path, "copilot")
     ex = app.state.agents["copilot"].executor
     failed_first = await final(client, "fail")
     assert failed_first.status.state == TaskState.TASK_STATE_FAILED and "it broke" in str(MessageToDict(failed_first.status))
     kept = ex.sessions[failed_first.context_id]
+    assert MessageToDict(failed_first.status.message.metadata)["session"] == kept
     again = await final(client, "go", context_id=failed_first.context_id)
     assert args_of(again) == [f"--session-id={kept}"], "Copilot starts a session it was told to, so the id still serves"
     failed = await final(client, "fail", context_id=again.context_id)
-    assert "new session" in str(MessageToDict(failed.status.message))
-    fresh = await final(client, "go", context_id=again.context_id)
-    assert args_of(fresh) != [f"--session-id={kept}"]
+    assert "new session" not in str(MessageToDict(failed.status.message)), "a rate limit must not cost the memory"
+    still = await final(client, "go", context_id=again.context_id)
+    assert args_of(still) == [f"--session-id={kept}"]
+    assert MessageToDict(still.status.message.metadata) == {"exit_code": 0, "session": kept}
+    await http.aclose()
+
+
+async def test_a_message_picks_copilots_model_effort_and_session(tmp_path):
+    client, http, _ = await agent(tmp_path, "copilot", model="gpt-5", model_args=["--model={model}"],
+                                  effort_args=["--reasoning-effort={effort}"])
+    first = await final(client, "a")
+    (model, sid) = args_of(first)
+    assert model == "--model=gpt-5", "a2a.yaml's model by default"
+    picked = await final(client, "b", context_id=first.context_id,
+                         metadata={"model": "claude-sonnet-4.5", "reasoning_effort": "XHigh"})
+    assert args_of(picked) == ["--model=claude-sonnet-4.5", "--reasoning-effort=xhigh", sid]
+    assert MessageToDict(picked.status.message.metadata) == {"exit_code": 0, "model": "claude-sonnet-4.5",
+                                                             "effort": "xhigh", "session": sid.removeprefix("--session-id=")}
+    named = await final(client, "c", context_id=first.context_id, metadata={"session": "3f2b8c1e-aaaa-4bbb-8ccc-0123456789ab"})
+    assert args_of(named)[-1] == "--session-id=3f2b8c1e-aaaa-4bbb-8ccc-0123456789ab", "a caller may resume its own session"
+    follow = await final(client, "d", context_id=first.context_id)
+    assert args_of(follow)[-1] == "--session-id=3f2b8c1e-aaaa-4bbb-8ccc-0123456789ab", "and the follow-ups keep it"
+    fresh = await final(client, "e", context_id=first.context_id, metadata={"session": "new"})
+    assert args_of(fresh)[-1] not in (sid, "--session-id=3f2b8c1e-aaaa-4bbb-8ccc-0123456789ab")
+    for bad in ({"session": "--yolo"}, {"session": "a b"}, {"effort": "huge"}, {"model": "x; rm -rf /"}):
+        rejected = await final(client, "f", context_id=first.context_id, metadata=bad)
+        assert rejected.status.state == TaskState.TASK_STATE_REJECTED, bad
+    await http.aclose()
+
+
+@pytest.mark.parametrize("name", ["copilot", "codex"])
+async def test_a_follow_up_after_a_restart_still_resumes_the_session(tmp_path, name):
+    client, http, _ = await agent(tmp_path, name, resume_args=["resume", "{session}"] if name == "codex" else
+                                  ["--session-id={session}"])
+    first = await final(client, "json" if name == "codex" else "go")
+    await http.aclose()
+    client, http, _ = await agent(tmp_path, name, resume_args=["resume", "{session}"] if name == "codex" else
+                                  ["--session-id={session}"])      # a new gateway on the same workdir
+    again = await final(client, "json" if name == "codex" else "go", context_id=first.context_id)
+    if name == "codex":
+        assert get_artifact_text(again.artifacts[0]) == 'args: ["resume", "session-1"]'
+    else:
+        assert args_of(again) == args_of(first)
+    await http.aclose()
+
+
+async def test_a_steer_sent_while_a_run_is_going_waits_its_turn_in_the_same_session(tmp_path):
+    client, http, _ = await agent(tmp_path, "copilot")
+    one, two = await asyncio.wait_for(asyncio.gather(final(client, "slow", context_id="ctx-1"),
+                                                     final(client, "slow", context_id="ctx-1")), 20)
+    assert one.status.state == two.status.state == TaskState.TASK_STATE_COMPLETED
+    log = (tmp_path / "work" / "copilot" / "ctx-1" / "turns.log").read_text().split()
+    assert log == ["begin", "end", "begin", "end"], "two runs in one conversation never overlap"
+    assert args_of(one) == args_of(two)
     await http.aclose()
 
 

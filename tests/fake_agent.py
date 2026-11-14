@@ -2,7 +2,7 @@
 
 Prints its working folder and its arguments, a line per word of the prompt, then "answer: <prompt>". The prompt
 (argv[1]) steers it: "fail" exits 3 with a message on stderr, "hang" sleeps until killed, "touch" writes a file in its
-folder and lists what is there. "json" prints Codex-style JSON events instead: a session (its id names how many runs
+folder and lists what is there, "slow" logs its begin and end to turns.log, 0.4s apart. "json" prints Codex-style JSON events instead: a session (its id names how many runs
 the folder has seen), and its arguments as the answer.
 """
 import json
@@ -39,4 +39,10 @@ if prompt == "hang":
 if prompt == "touch":
     Path(f"note-{len(list(Path().iterdir()))}.txt").write_text("x")
     print(f"files: {sorted(p.name for p in Path().iterdir())}", flush=True)
+if prompt == "slow":
+    with open("turns.log", "a") as f:
+        f.write("begin\n")
+    time.sleep(0.4)
+    with open("turns.log", "a") as f:
+        f.write("end\n")
 print(f"answer: {prompt}", flush=True)

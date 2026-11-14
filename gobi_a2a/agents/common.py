@@ -71,12 +71,14 @@ class BadOverride(ValueError):
 
 
 def overrides(*metadata: dict | None) -> dict[str, str]:
-    """{"model"?, "effort"?} a caller asked for, from the first metadata that names each. Checked, normalized."""
+    """{"model"?, "effort"?} a caller asked for, from the first metadata that names each. Checked, normalized.
+    "reasoning_effort" is another name for "effort"."""
     out: dict[str, Any] = {}
     for md in metadata:
-        for k in ("model", "effort"):
-            if k not in out and isinstance(md, dict) and md.get(k) not in (None, ""):
-                out[k] = md[k]
+        for k, names in (("model", ("model",)), ("effort", ("effort", "reasoning_effort"))):
+            v = next((md[n] for n in names if md.get(n) not in (None, "")), None) if isinstance(md, dict) else None
+            if k not in out and v is not None:
+                out[k] = v
     try:
         if "model" in out:
             out["model"] = check_model(out["model"])

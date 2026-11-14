@@ -15,7 +15,8 @@ agent is mounted under its own name:
 
 The Gobi app takes one **address** per worker. With the gateway, each agent's address is `https://<your-domain>/<agent>`,
 for example `https://my-mac.tail1234.ts.net/claude` behind Tailscale Funnel. All agents can sit behind the same tunnel
-and token; [Quick start](#quick-start) sets one up with Tailscale Funnel or Cloudflare Tunnel.
+and token; [Quick start](#quick-start) sets one up with Tailscale Funnel or Cloudflare Tunnel, and
+[Connecting to Gobi App](#connecting-to-gobi-app) adds it in the app, screen by screen.
 
 ## The A2A protocol
 
@@ -112,12 +113,104 @@ From another terminal, check it end to end through the tunnel. The card is publi
 curl -s https://<machine>.<tailnet>.ts.net/claude/.well-known/agent-card.json
 ```
 
-**4. Add the agents in Gobi.** In the Gobi app under **Workers**, add `<A2A_PUBLIC_URL>/claude` (for example
-`https://my-mac.tail1234.ts.net/claude`) and the token. Do the same for each other agent you enable (`/cursor`,
-`/aider`, `/omp`), with the same token unless you gave that agent its own.
+**4. Add the agents in Gobi.** In the Gobi app, open your personal agent's **Workers** ▸ gear ▸ **Remote agent**, and
+add `<A2A_PUBLIC_URL>/claude` (for example `https://my-mac.tail1234.ts.net/claude`) and the token. Do the same for
+each other agent you enable (`/cursor`, `/aider`, `/omp`), with the same token unless you gave that agent its own.
+[Connecting to Gobi App](#connecting-to-gobi-app) walks through it screen by screen.
 
 Claude Code signs in as it does on this machine (`ANTHROPIC_API_KEY`, or its own login), and the run's cost is on that
 account. The CLI agents sign in the same way their programs do on this machine.
+
+## Connecting to Gobi App
+
+Once the gateway is running and reachable through its tunnel ([Quick start](#quick-start) steps 1 to 3), add each
+agent to your Gobi personal agent as a **Remote agent** worker. You need two things:
+
+| | Value | Example |
+|---|---|---|
+| **Address** | `<A2A_PUBLIC_URL>/<agent>` | `https://my-mac.tail1234.ts.net/claude` |
+| **Token** | the gateway's bearer token, `$A2A_TOKEN` (from `gobi-a2a token`) | `echo $A2A_TOKEN` |
+
+Before you open the app, check that the Agent Card answers through the tunnel. If this fails, the app's look-up
+will fail the same way:
+
+```sh
+curl -s https://<machine>.<tailnet>.ts.net/claude/.well-known/agent-card.json
+```
+
+<p align="center"><img src="docs/images/connection-flow.svg" alt="Gobi app to Gobi harness to the https tunnel to gobi-a2a to Claude Code" width="100%"></p>
+
+### Step by step
+
+The numbers match the callouts on the screens below. The screens are wireframes of the app's Workers pages
+([gobi-app#1147](https://github.com/gobi-ai/gobi-app/pull/1147)); [docs/images/](docs/images/README.md) says how to
+swap in real screenshots.
+
+**Open Workers from your personal agent**
+
+1. Open the **Personal agent** chat and tap the **title pill** at the top center (it shows your agent's name, or
+   *Personal agent*). The agent's menu opens under it.
+2. Tap **Workers**. It is only in the menu of your own personal agent chat.
+3. On **Workers**, tap the **gear** at the top right: **Worker settings**.
+4. Under **Yours**, tap **Remote agent**.
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/01-personal-agent-menu.svg" alt="Personal agent chat: title pill menu with Workers" width="240"><br><sub>1–2 · Title pill ▸ Workers</sub></td>
+    <td align="center"><img src="docs/images/02-workers.svg" alt="Workers page with the gear at the top right" width="240"><br><sub>3 · Workers ▸ gear</sub></td>
+    <td align="center"><img src="docs/images/03-worker-settings.svg" alt="Worker settings with the Remote agent button" width="240"><br><sub>4 · Worker settings ▸ Remote agent</sub></td>
+  </tr>
+</table>
+
+**Add the agent**
+
+5. In **Address**, enter the agent's address: `https://<machine>.<tailnet>.ts.net/claude` with Tailscale Funnel, or
+   `https://<random-words>.trycloudflare.com/claude` with a Cloudflare quick tunnel. Include the agent's path
+   (`/claude`, `/cursor`, ...): the bare domain is the gateway itself, not an agent, and has no Agent Card.
+6. Tap **Look it up**. Gobi reads the agent's public Agent Card and shows **What it says it is**: *Claude Code*, its
+   description and skill, and a **Changes things** badge. A remote agent can do whatever it can on your computer, so
+   your agent starts it only when you ask for it in your own message.
+7. Check the **Name** (filled in from the card, e.g. `claude-code`; lowercase letters, digits and hyphens, starting
+   with a letter). It is how your agent and the Workers page refer to it. Then paste your **Token**, the value of
+   `$A2A_TOKEN`. It is sent only to this agent and never shown again. The Token field appears because the card
+   declares HTTP Bearer; with `no_auth: true` there is none.
+8. Tap **Add**. A toast says *Added claude-code*, and the agent is listed under **Yours** in Worker settings.
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/04-remote-agent-address.svg" alt="Remote agent: Address field and Look it up" width="240"><br><sub>5–6 · Address ▸ Look it up</sub></td>
+    <td align="center"><img src="docs/images/05-remote-agent-token.svg" alt="Remote agent: the card, Name, Token and Add" width="240"><br><sub>7–8 · Token ▸ Add</sub></td>
+    <td align="center"><img src="docs/images/06-worker-added.svg" alt="Worker settings with claude-code under Yours" width="240"><br><sub>Added under Yours</sub></td>
+  </tr>
+</table>
+
+Repeat steps 4 to 8 for each other agent you enabled (`/cursor`, `/aider`, `/omp`), with the same token unless you
+gave that agent its own `token:` in `a2a.yaml`.
+
+### Using it
+
+- **Ask for it by name.** Your agent hands work to a remote agent only when your own message asks for it, for example
+  *"Have claude-code fix the flaky upload test in ~/src/app"*. Each task is one A2A `SendMessage`; Gobi then polls it
+  with `GetTask` (see [How Gobi Harness connects](#how-gobi-harness-connects)).
+- **Watch it on Workers.** While it works, the task is under **Running**, with the worker's name, when it started and
+  its latest progress line. Tapping a running task asks *Stop this worker?*; **Stop** sends `CancelTask`. The last
+  five that ended are under **Recently finished**, each with how it ended and its summary.
+- **Edit or remove it** from **Worker settings**: tap the worker. Its page shows this week's runs. **Enter it again**
+  replaces the token, **Read its card again** saves and re-reads the card (after you rename the agent or change its
+  description in `a2a.yaml`), and **Remove** deletes it. The address cannot be edited: if it changes (a Cloudflare
+  quick tunnel gets a new one on each start), remove the worker and add it again with the new address.
+
+<p align="center"><img src="docs/images/07-workers-running.svg" alt="Workers page: a running task and a recently finished one" width="240"><br><sub>Workers while claude-code is at work</sub></p>
+
+### If it does not connect
+
+| What you see | Why, and what to do |
+|---|---|
+| *Could not read the agent's card* after **Look it up** | The app could not fetch `<address>/.well-known/agent-card.json`. Run the `curl` above. Check that the gateway is running, the tunnel is up (`tailscale funnel status`), the address ends in the agent's path, and that agent is `enabled: true`. `tailscale serve` is tailnet-only: Gobi needs `tailscale funnel`. |
+| The card names the wrong address | `A2A_PUBLIC_URL` was not set, or was set to another address, when the gateway started. The card tells Gobi where to send work, so set it to the tunnel's `https://` URL and restart the gateway. |
+| No **Token** field | The gateway runs with `no_auth: true`. Never expose that through a tunnel: set a token and restart. |
+| Tasks fail, or the worker shows **CHECK** | Open the worker in Worker settings: the page says what needs attention. A `401` means the token Gobi holds is not the one the gateway expects (the gateway's `token`, or the agent's own `token:` in `a2a.yaml`). Tap **Enter it again** and paste the current one. |
+| It worked, then stopped after a restart | With a Cloudflare quick tunnel the address changed: update `A2A_PUBLIC_URL`, restart the gateway, then remove the worker and add it again. A Tailscale Funnel address does not change. |
 
 ## The command
 
@@ -278,6 +371,7 @@ gobi_a2a/
 tests/             pytest; Claude Code is a scripted run, the CLIs are tests/fake_agent.py
   test_protocol.py the A2A wire protocol in raw JSON, as docs/protocol.md documents it
 docs/protocol.md   the A2A protocol reference
+docs/images/       the README's diagrams and Gobi app screens
 examples/
   echo_agent.py    a standalone third-party A2A agent (a2a-sdk only)
 ```

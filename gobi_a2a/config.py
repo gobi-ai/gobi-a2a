@@ -159,7 +159,7 @@ def load(path: str | Path, *, env: dict[str, str] | os._Environ = os.environ) ->
     try:
         raw = yaml.safe_load(p.read_text())
     except FileNotFoundError:
-        raise ConfigError(f"{p} not found (copy a2a.example.yaml to a2a.yaml to start)") from None
+        raise ConfigError(f"{p} not found (`gobi-a2a start` writes one; or copy a2a.example.yaml)") from None
     except yaml.YAMLError as e:
         raise ConfigError(f"{p} is not valid YAML: {e}") from None
     return parse(raw, base=p.resolve().parent, env=env, path=p.resolve())

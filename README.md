@@ -24,36 +24,43 @@ Each agent gets its own address, `https://<your-domain>/<agent>`, behind the sam
 
 ## 30-Second Quick Start
 
-**1. Install**
+**On a Mac, two lines.** [uv](https://docs.astral.sh/uv/) brings its own Python; [Tailscale](https://tailscale.com/download)
+(signed in) gives the public address.
+
+```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
+~/.local/bin/uv tool install git+https://github.com/gobi-ai/gobi-a2a && ~/.local/bin/gobi-a2a start
+```
+
+`gobi-a2a start` writes `~/.gobi-a2a/a2a.yaml` the first time, with a new token and only the agents it finds on this
+Mac enabled (Claude Code when you are signed in to it; the others when their command is installed). It turns on
+Tailscale Funnel, runs the gateway in the background (again at each login), and prints each agent's address and the
+token. `gobi-a2a stop` stops it; run `start` again after editing the config.
+
+**Connect in Gobi App:** **Workers** ▸ gear ▸ **Remote agent**, paste the address and the token. Done.
+
+<details>
+<summary>By hand, from a clone (any OS)</summary>
 
 ```sh
 git clone https://github.com/gobi-ai/gobi-a2a && cd gobi-a2a
 uv sync
 cp a2a.example.yaml a2a.yaml
-export A2A_TOKEN=$(.venv/bin/gobi-a2a token)   # the token Gobi will present; keep it
-```
-
-**2. Expose** port 8000 at a public `https://` address (Gobi only calls public https):
-
-```sh
+export A2A_TOKEN=$(.venv/bin/gobi-a2a token)     # the token Gobi will present; keep it
 tailscale funnel --bg 8000                       # recommended: a permanent https://<machine>.<tailnet>.ts.net
 # or
 cloudflared tunnel --url http://localhost:8000   # free, no account; a new random address on every start
-```
-
-**3. Start**
-
-```sh
 export A2A_PUBLIC_URL=https://<machine>.<tailnet>.ts.net
 .venv/bin/gobi-a2a
 ```
 
 It ends its start-up output with an **Agent URLs ready** block: each agent's address, and the token, masked.
 
-**4. Connect in Gobi App:** **Workers** ▸ gear ▸ **Remote agent**, paste the address and the token. Done.
+</details>
 
-> Tailscale Funnel's address never changes. A Cloudflare *quick tunnel* changes on each start and does not carry
-> streaming; fine for Gobi, which polls. Details and other tunnels: [choosing a tunnel](docs/connecting-gobi-app.md#a-public-https-address-choosing-a-tunnel).
+> Gobi only calls public `https://` addresses. Tailscale Funnel's address never changes. A Cloudflare *quick tunnel*
+> changes on each start and does not carry streaming; fine for Gobi, which polls. Details and other tunnels:
+> [choosing a tunnel](docs/connecting-gobi-app.md#a-public-https-address-choosing-a-tunnel).
 
 ## Connecting to Gobi App
 
@@ -111,6 +118,7 @@ need none of the agents installed. `tests/test_protocol.py` sends raw JSON-RPC e
 ```
 gobi_a2a/
   main.py        the gobi-a2a command          config.py   a2a.yaml loading and validation
+  service.py     gobi-a2a start / stop: first-run config, Tailscale Funnel, the macOS LaunchAgent
   gateway.py     FastAPI app, mounts agents    auth.py     bearer-token middleware
   agents/        common.py, claude.py, cli.py (shared CLI executor), cursor.py, codex.py, omp.py, copilot.py
 tests/           pytest, including test_protocol.py

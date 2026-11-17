@@ -51,6 +51,7 @@ def test_serve_is_the_default_and_the_config_may_come_from_the_environment(conf,
 
 def test_a_bad_config_exits_with_words_not_a_traceback(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GOBI_A2A_HOME", str(tmp_path / "home"))
     with pytest.raises(SystemExit, match="a2a.yaml not found"):
         cli.main(["check"])
     (tmp_path / "a2a.yaml").write_text("agents: {claude: {permission_mode: yolo}}\ngateway: {token: t}\n")
@@ -102,3 +103,20 @@ def test_check_says_when_there_is_no_token_at_all(tmp_path, capsys):
     p.write_text("gateway: {no_auth: true, public_url: 'https://x.trycloudflare.com'}\n")
     cli.main(["check", "-c", str(p)])
     assert "none: anyone with the address can use these agents" in capsys.readouterr().out
+
+
+def test_the_config_is_the_one_here_else_the_one_start_writes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GOBI_A2A_CONFIG", raising=False)
+    monkeypatch.setenv("GOBI_A2A_HOME", str(tmp_path / "home"))
+    assert cli.config_path(None) == str(tmp_path / "home" / "a2a.yaml")
+    (tmp_path / "a2a.yaml").write_text("")
+    assert cli.config_path(None) == "a2a.yaml" and cli.config_path("x.yaml") == "x.yaml"
+
+
+def test_start_shows_the_whole_token_check_does_not(tmp_path):
+    p = tmp_path / "a2a.yaml"
+    p.write_text(f"gateway: {{token: {TOKEN}, public_url: 'https://my-mac.tail1234.ts.net'}}\n")
+    from gobi_a2a.config import load
+    assert re.search(rf"Bearer token +{TOKEN}\n?", cli.gobi_app(load(p), reveal=True))
+    assert TOKEN not in cli.gobi_app(load(p))

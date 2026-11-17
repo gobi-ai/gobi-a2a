@@ -4,8 +4,11 @@
     gobi-a2a check   [-c a2a.yaml]                          check the config, print each agent's address and what to
                                                             enter in the Gobi app
     gobi-a2a token                                          print a new random bearer token
+    gobi-a2a start   [-c a2a.yaml]                          run it in the background, now and at each login (macOS);
+                                                            the first time, write the config with the agents found
+    gobi-a2a stop                                           stop it, and not at login either
 
-The config is -c/--config, else $GOBI_A2A_CONFIG, else ./a2a.yaml.
+The config is -c/--config, else $GOBI_A2A_CONFIG, else ./a2a.yaml if there is one, else ~/.gobi-a2a/a2a.yaml.
 """
 from __future__ import annotations
 
@@ -14,6 +17,7 @@ import logging
 import os
 import secrets
 import sys
+from pathlib import Path
 
 from gobi_a2a import __version__
 from gobi_a2a.agents import AGENTS
@@ -24,18 +28,22 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="gobi-a2a", description="A config-driven gateway of A2A coding agents for Gobi.")
     p.add_argument("--version", action="version", version=f"gobi-a2a {__version__}")
     sub = p.add_subparsers(dest="cmd")
-    for name, help_ in (("serve", "start the gateway (the default)"), ("check", "check the config and print the agents")):
+    for name, help_ in (("serve", "start the gateway (the default)"), ("check", "check the config and print the agents"),
+                        ("start", "run the gateway in the background, now and at each login (macOS)")):
         s = sub.add_parser(name, help=help_)
-        s.add_argument("-c", "--config", default=None, help="the config file (default $GOBI_A2A_CONFIG or ./a2a.yaml)")
+        s.add_argument("-c", "--config", default=None,
+                       help="the config file (default $GOBI_A2A_CONFIG, ./a2a.yaml, or ~/.gobi-a2a/a2a.yaml)")
         if name == "serve":
             s.add_argument("--host", default=None, help="overrides gateway.host")
             s.add_argument("--port", type=int, default=None, help="overrides gateway.port")
     sub.add_parser("token", help="print a new random bearer token")
+    sub.add_parser("stop", help="stop the background gateway, and not at login either")
     return p
 
 
 def config_path(arg: str | None) -> str:
-    return arg or os.environ.get("GOBI_A2A_CONFIG") or "a2a.yaml"
+    from gobi_a2a.service import home
+    return arg or os.environ.get("GOBI_A2A_CONFIG") or ("a2a.yaml" if Path("a2a.yaml").exists() else str(home() / "a2a.yaml"))
 
 
 def describe(cfg: Config) -> str:
@@ -61,8 +69,8 @@ def masked(token: str) -> str:
     return f"{token[:4]}…{token[-4:]}" if len(token) >= 16 else "*" * 8
 
 
-def gobi_app(cfg: Config) -> str:
-    """What to enter in the Gobi app, per enabled agent: its address, and the token it wants (masked)."""
+def gobi_app(cfg: Config, reveal: bool = False) -> str:
+    """What to enter in the Gobi app, per enabled agent: its address, and the token it wants (masked unless `reveal`)."""
     gw = cfg.gateway
     agents = {name: cfg.agents[name].name or getattr(AGENTS[name], "NAME", name) for name in AGENTS if cfg.agents[name].enabled}
     if not agents:
@@ -72,29 +80,45 @@ def gobi_app(cfg: Config) -> str:
     width = max(len("Bearer token"), *(len(label) for label in agents.values()))
     lines = ["Agent URLs ready. In the Gobi app: Workers > gear > Remote agent, add each address with the token:"]
     for name, label in agents.items():
-        own = "" if shared else f"  token {masked(tokens[name]) if tokens[name] else 'none'}"
+        own = "" if shared else f"  token {(tokens[name] if reveal else masked(tokens[name])) if tokens[name] else 'none'}"
         lines.append(f"  • {label:<{width}}  {gw.url}/{name}{own}")
     token = next(iter(tokens.values()))
-    if shared and token:
+    if shared and token and reveal:
+        lines.append(f"    {'Bearer token':<{width}}  {token}")
+    elif shared and token:
         lines.append(f"    {'Bearer token':<{width}}  {masked(token)}  (the full one is gateway.token: echo $A2A_TOKEN)")
     elif shared:
         lines.append(f"    {'Bearer token':<{width}}  none: anyone with the address can use these agents (local testing only)")
     if not gw.url.startswith("https://"):
         lines.append(f"  ! {gw.url} is not https: Gobi only calls public https addresses. "
-                     "Set A2A_PUBLIC_URL to your tunnel's address and run this again.")
+                     f"Set gateway.public_url in {cfg.path or 'a2a.yaml'} to your tunnel's address and run this again.")
     return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> None:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv or argv[0] not in ("serve", "check", "token", "-h", "--help", "--version"):
+    if not argv or argv[0] not in ("serve", "check", "token", "start", "stop", "-h", "--help", "--version"):
         argv.insert(0, "serve")                   # `gobi-a2a` and `gobi-a2a -c x.yaml` serve
     args = parser().parse_args(argv)
     cmd = args.cmd
     if cmd == "token":
         print(secrets.token_hex(24))
         return
+    if cmd == "stop":
+        from gobi_a2a.service import stop
+        stop()
+        return
     path = config_path(getattr(args, "config", None))
+    if cmd == "start":
+        from gobi_a2a.service import start
+
+        def checked(p: Path) -> Config:
+            try:
+                return load(p)
+            except ConfigError as e:
+                sys.exit(f"gobi-a2a: {p}: {e}")
+        start(Path(path).expanduser().resolve(), load=checked, describe=gobi_app)
+        return
     try:
         cfg = load(path)
     except ConfigError as e:

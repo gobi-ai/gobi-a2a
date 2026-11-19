@@ -11,7 +11,7 @@ import pytest
 from a2a.client import ClientConfig, create_client
 from a2a.helpers import new_text_message
 from a2a.types import AgentCard, Role, SendMessageConfiguration, SendMessageRequest
-from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolUseBlock
+from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock, ToolPermissionContext, ToolUseBlock
 from google.protobuf.json_format import ParseDict
 
 from gobi_a2a.config import parse
@@ -30,10 +30,18 @@ class Script:
         self.error = False
         self.raise_ = None
         self.hold: asyncio.Event | None = None
+        self.ask: list[dict] | None = None        # questions the next run asks with AskUserQuestion
+        self.told: list[str] = []                 # what the gateway answered each question with
 
     async def __call__(self, *, prompt, options):
         self.options.append(options)
         yield AssistantMessage(content=[TextBlock("Looking at the files."), ToolUseBlock("t1", "Read", {"file_path": "a.txt"})], model="m")
+        if self.ask:
+            questions, self.ask = self.ask, None
+            yield AssistantMessage(content=[ToolUseBlock("t2", "AskUserQuestion", {"questions": questions})], model="m")
+            said = await options.can_use_tool("AskUserQuestion", {"questions": questions}, ToolPermissionContext())
+            self.told.append(said.message)
+            prompt = "I need an answer first."
         if self.hold is not None:
             await self.hold.wait()
         if self.raise_:

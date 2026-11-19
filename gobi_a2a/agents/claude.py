@@ -7,6 +7,11 @@ What the caller sees while it runs: a status message for each thing Claude says 
 the result as an artifact, and the run's cost and token use as the metadata of the final status message, which stays
 on the task, so the caller can count it however it reads the task.
 
+When Claude needs something only the user can tell it, it asks with its AskUserQuestion tool. Nobody is there to
+answer, so the run ends there and the task is INPUT_REQUIRED, with the question as its status message (and the
+structured questions, with the cost, in that message's metadata). The answer is a message on the same task: it resumes
+the Claude session with the answer as the prompt, and the task goes on.
+
 A caller may pick the model and the effort for one run: "model" and "effort" in the message's metadata (or the
 request's; the message's wins). A follow-up or a steer in the same context resumes the same Claude session with
 whatever it names; what it does not name is the server's default, not what the run before used. A value that is not a
@@ -16,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import warnings
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,8 +32,9 @@ from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
 from a2a.types import AgentSkill, TaskState
-from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, ToolUseBlock, query
-from claude_agent_sdk.types import PermissionMode
+from claude_agent_sdk import (AssistantMessage, CanUseToolShadowedWarning, ClaudeAgentOptions, PermissionResultDeny,
+                              ResultMessage, TextBlock, ToolPermissionContext, ToolUseBlock, query)
+from claude_agent_sdk.types import CanUseTool, PermissionMode
 from google.protobuf.json_format import MessageToDict
 from pydantic import Field, field_validator
 
@@ -41,6 +48,16 @@ PERMISSION_MODES: tuple[str, ...] = get_args(PermissionMode)   # default, accept
 DEFAULT_TOOLS = ["Read", "Glob", "Grep", "Write", "Edit", "WebSearch", "WebFetch"]   # files and the web: no Bash
 NAME = "Claude Code"
 DESCRIPTION = "Claude Code working in its own folder: code, files and web research."
+ASK = "AskUserQuestion"                           # Claude Code's tool for asking the user: the task's INPUT_REQUIRED
+UNATTENDED = ("You work unattended: the user handed you this task and is not watching. When you need something only "
+              "they can tell you (a choice between real options, a fact you cannot find, a go-ahead), ask with the "
+              f"{ASK} tool, which pauses the task until they answer. Do not ask what you can find out or decide "
+              "yourself.")
+ASKED = ("Your question went to the user, who is not here now. End your turn: do not guess the answer or go on "
+         "without it. Their answer comes as the next message.")
+
+# The allowed tools are meant to run without asking, so can_use_tool only ever sees the rest: say nothing about it.
+warnings.filterwarnings("ignore", category=CanUseToolShadowedWarning)
 
 
 # ---- config: the `agents.claude` block of a2a.yaml
@@ -113,6 +130,30 @@ def thinking_from(value: Any) -> dict | None:
     raise ValueError(f"thinking {value!r} is not adaptive, disabled or a positive token budget")
 
 
+def permit(asked: list[dict[str, Any]]) -> CanUseTool:
+    """Decides the tools outside allowed_tools: a question is kept in `asked` for the user, anything else is refused."""
+    async def decide(tool: str, data: dict[str, Any], _: ToolPermissionContext) -> PermissionResultDeny:
+        if tool == ASK:
+            asked.extend(q for q in data.get("questions") or [] if isinstance(q, dict))
+            return PermissionResultDeny(message=ASKED)
+        return PermissionResultDeny(message=f"{tool} is not allowed here: nobody is there to approve it.")
+    return decide
+
+
+def question_text(questions: list[dict[str, Any]]) -> str:
+    """The questions as the user reads them: each with its options, if it has any."""
+    lines = []
+    for i, q in enumerate(questions, 1):
+        head = str(q.get("question") or q.get("header") or "").strip() or "(no question)"
+        lines.append(f"{i}. {head}" if len(questions) > 1 else head)
+        for o in q.get("options") or []:
+            if isinstance(o, dict) and o.get("label"):
+                lines.append(f"   - {o['label']}" + (f": {o['description']}" if o.get("description") else ""))
+        if q.get("multiSelect") and q.get("options"):
+            lines.append("   (any of these)")
+    return "\n".join(lines)
+
+
 # ---- the executor
 @dataclass
 class Settings:
@@ -121,7 +162,7 @@ class Settings:
     allowed_tools: list[str] = field(default_factory=lambda: list(DEFAULT_TOOLS))
     permission_mode: str = "default"              # a tool outside allowed_tools is refused: nobody is there to ask
     max_turns: int | None = None                  # None: no turn limit, the run goes until Claude is done
-    system_prompt: str | None = None              # appended to Claude Code's own
+    system_prompt: str | None = None              # appended to Claude Code's own, after UNATTENDED
     effort: str | None = None                     # low|medium|high|xhigh|max; None: Claude Code's default
     thinking: dict[str, Any] | None = None        # {"type": "adaptive"|"disabled"} or {"type": "enabled", "budget_tokens": N}
 
@@ -138,14 +179,18 @@ class ClaudeExecutor(AgentExecutor):
         self.sessions: dict[str, str] = {}        # A2A context -> Claude session, for the next task in that context
         self.running: dict[str, asyncio.Task] = {}
 
-    def options(self, context_id: str, model: str | None = None, effort: str | None = None) -> ClaudeAgentOptions:
-        """The run's options: the server's settings, with the model and effort a caller asked for in their place."""
+    def options(self, context_id: str, model: str | None = None, effort: str | None = None,
+                asked: list[dict[str, Any]] | None = None) -> ClaudeAgentOptions:
+        """The run's options: the server's settings, with the model and effort a caller asked for in their place.
+        Questions Claude asks go into `asked`."""
         ws = workspace(self.s.workdir, context_id)
-        extra = {"system_prompt": {"type": "preset", "preset": "claude_code", "append": self.s.system_prompt}} if self.s.system_prompt else {}
-        return ClaudeAgentOptions(cwd=str(ws), model=model or self.s.model, allowed_tools=list(self.s.allowed_tools),
+        append = "\n\n".join(p for p in (UNATTENDED, self.s.system_prompt) if p)
+        tools = [t for t in self.s.allowed_tools if t != ASK]   # allowed, it would run with nobody to answer it
+        return ClaudeAgentOptions(cwd=str(ws), model=model or self.s.model, allowed_tools=tools,
                                   permission_mode=self.s.permission_mode, max_turns=self.s.max_turns,
                                   resume=self.sessions.get(context_id), effort=effort or self.s.effort,
-                                  thinking=self.s.thinking, **extra)
+                                  thinking=self.s.thinking, can_use_tool=permit(asked if asked is not None else []),
+                                  system_prompt={"type": "preset", "preset": "claude_code", "append": append})
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task = context.current_task
@@ -180,7 +225,8 @@ class ClaudeExecutor(AgentExecutor):
 
     async def _run(self, up: TaskUpdater, context_id: str, prompt: str, model: str | None = None,
                    effort: str | None = None) -> None:
-        options = self.options(context_id, model, effort)
+        asked: list[dict[str, Any]] = []
+        options = self.options(context_id, model, effort, asked)
         log.info("run in %s: model=%s effort=%s", context_id, options.model, options.effort or "(Claude Code default)")
         result: ResultMessage | None = None
         async for m in self.run(prompt=prompt, options=options):
@@ -207,6 +253,10 @@ class ClaudeExecutor(AgentExecutor):
             why = text or "; ".join(str(e) for e in (getattr(result, "errors", None) or [])) or result.subtype
             await up.failed(up.new_agent_message([new_text_part(why)], metadata=spent))
             return
+        if asked:                                 # it waits for the user: their answer, on this task, resumes it
+            await up.requires_input(up.new_agent_message([new_text_part(question_text(asked))],
+                                                         metadata={**spent, "questions": asked}))
+            return
         await up.add_artifact([new_text_part(text or "(no text)")], name="result")
         await up.complete(up.new_agent_message([new_text_part(text[:NOTE_CHARS] or "done")], metadata=spent))
 
@@ -227,7 +277,9 @@ def build(name: str, cfg: Config, *, url: str, workdir: Path, auth: bool, token:
     executor = ClaudeExecutor(settings, run) if run else ClaudeExecutor(settings)
     skill = AgentSkill(id="work", name="Work on files and the web",
                        description="Reads, writes and edits files in its own workspace, searches and reads the web, and "
-                                   "reports what it did. A follow-up in the same context continues the same session. A message "
+                                   "reports what it did. When it needs something only the user knows, it asks: the task is "
+                                   "input-required, and the answer, sent on the same task, lets it go on. A follow-up "
+                                   "in the same context continues the same session. A message "
                                    "may pick the run's model and effort: {\"model\": ..., \"effort\": \"low\"|...|\"max\"} "
                                    "in its metadata; otherwise the server's defaults.",
                        tags=["coding", "research", "files"], examples=["Write a script that ...", "Find out ... and summarize it"])

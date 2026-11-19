@@ -9,7 +9,9 @@ from a2a.helpers import get_artifact_text
 from a2a.types import CancelTaskRequest, GetTaskRequest, TaskState
 from google.protobuf.json_format import MessageToDict
 
+from claude_agent_sdk import ToolPermissionContext
 from conftest import Script, ask, client_for, config, final, http_for
+from gobi_a2a.agents import claude
 from gobi_a2a.gateway import create_app
 
 
@@ -54,6 +56,7 @@ async def test_a_task_is_one_claude_run_and_ends_with_its_result_and_cost(stack,
     assert o.model == "claude-opus-5-5" and "Bash" not in o.allowed_tools and o.resume is None
     assert o.cwd.startswith(str((tmp_path / "work" / "claude").resolve())) and o.permission_mode == "default"
     assert o.max_turns is None, "no turn limit unless a2a.yaml sets one"
+    assert o.system_prompt["append"] == claude.UNATTENDED, "Claude knows nobody is watching, and how to ask"
 
 
 async def test_a_follow_up_in_the_same_context_continues_the_session(stack):
@@ -95,6 +98,42 @@ async def test_a_cancel_stops_the_run(stack):
     assert task.status.state == TaskState.TASK_STATE_CANCELED and not ex.running
 
 
+# ---- questions: AskUserQuestion is INPUT_REQUIRED, and the answer on the task goes on
+COLOUR = [{"question": "Which colour?", "header": "Colour", "multiSelect": False,
+           "options": [{"label": "Green", "description": "a natural green"}, {"label": "Red", "description": ""}]}]
+
+
+async def test_a_question_pauses_the_task_and_the_answer_on_the_same_task_goes_on(stack):
+    client, script, _ = stack
+    script.ask = COLOUR
+    task = await final(client, "write color.txt")
+    assert task.status.state == TaskState.TASK_STATE_INPUT_REQUIRED and not task.artifacts
+    said = task.status.message.parts[0].text
+    assert said == "Which colour?\n   - Green: a natural green\n   - Red"
+    meta = MessageToDict(task.status.message.metadata)
+    assert meta["questions"][0]["question"] == "Which colour?" and meta["cost_usd"] == 0.042, "what it asked, and what it cost"
+    assert script.told == [claude.ASKED], "Claude is told to stop and wait, not to guess"
+    done = await final(client, "Green", task.context_id, task_id=task.id)
+    assert done.id == task.id and done.status.state == TaskState.TASK_STATE_COMPLETED
+    assert get_artifact_text(done.artifacts[-1]) == "Did: Green" and script.options[1].resume == "sess-1"
+
+
+async def test_tools_outside_the_list_are_refused_and_asking_is_never_allowed_outright(tmp_path):
+    client, http, script, _ = await stack_for(tmp_path, allowed_tools=["Read", "AskUserQuestion"])
+    await final(client, "go")
+    o = script.options[0]
+    assert o.allowed_tools == ["Read"], "allowed, the question would run with nobody to answer it"
+    said = await o.can_use_tool("Bash", {"command": "ls"}, ToolPermissionContext())
+    assert said.behavior == "deny" and "Bash is not allowed" in said.message
+    await http.aclose()
+
+
+def test_several_questions_are_numbered():
+    two = [{"question": "Where?", "options": [{"label": "Here"}, {"label": "There"}], "multiSelect": True},
+           {"header": "When", "options": []}]
+    assert claude.question_text(two) == "1. Where?\n   - Here\n   - There\n   (any of these)\n2. When"
+
+
 # ---- a2a.yaml reaches Claude Code
 async def test_the_config_reaches_claude(tmp_path):
     client, http, script, app = await stack_for(tmp_path, permission_mode="bypassPermissions", max_turns=7, effort="XHigh",
@@ -104,7 +143,7 @@ async def test_the_config_reaches_claude(tmp_path):
     o = script.options[0]
     assert (o.permission_mode, o.max_turns, o.effort, o.thinking, o.allowed_tools) == \
         ("bypassPermissions", 7, "xhigh", {"type": "enabled", "budget_tokens": 16000}, ["Read", "Bash"])
-    assert o.system_prompt == {"type": "preset", "preset": "claude_code", "append": "Be brief."}
+    assert o.system_prompt == {"type": "preset", "preset": "claude_code", "append": claude.UNATTENDED + "\n\nBe brief."}
     card = (await http.get("/claude/.well-known/agent-card.json")).json()
     assert (card["name"], card["description"]) == ("My Claude", "Mine.")
     await http.aclose()

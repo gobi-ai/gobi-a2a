@@ -16,7 +16,7 @@ in raw JSON, so if the server changes, a test fails before the reference goes st
 5. [The Agent Card](#5-the-agent-card)
 6. [Data model](#6-data-model)
 7. [Methods](#7-methods): `SendMessage`, `SendStreamingMessage`, `GetTask`, `ListTasks`, `CancelTask`, `SubscribeToTask`, unsupported, pre-1.0 names
-8. [Task lifecycle](#8-task-lifecycle): states, contexts, polling, streaming, steering, cancellation
+8. [Task lifecycle](#8-task-lifecycle): states, contexts, polling, streaming, steering, questions, cancellation
 9. [Metadata: model, effort, and cost](#9-metadata-model-effort-and-cost)
 10. [Errors](#10-errors)
 11. [The HTTP+JSON (REST) binding](#11-the-httpjson-rest-binding)
@@ -61,6 +61,7 @@ What A2A provides, and how the gateway uses each part:
 - **Polling:** `GetTask` (or `ListTasks`).
 - **Streaming:** `SendStreamingMessage` and `SubscribeToTask` over Server-Sent Events.
 - **Steering:** `SendMessage` with the `taskId` of a running task.
+- **Questions:** claude pauses as `INPUT_REQUIRED`; the answer is a `SendMessage` with that task's `taskId`.
 - **Cancellation:** `CancelTask`.
 - **Metadata:** `model` and `effort` per run; `cost_usd`, `usage`, `turns`, ... on the final status.
 
@@ -85,7 +86,7 @@ JSON-RPC (§3–§7), the binding the Gobi harness uses. §11 documents the REST
 | Authenticated extended card | ❌ error `-32004` |
 | Input modes / output modes | `text/plain` in, `text/plain` out |
 | Security | HTTP Bearer (§3.3) |
-| Task states produced | `SUBMITTED`, `WORKING`, `COMPLETED`, `FAILED`, `CANCELED`, `REJECTED` (never `INPUT_REQUIRED` or `AUTH_REQUIRED`) |
+| Task states produced | `SUBMITTED`, `WORKING`, `COMPLETED`, `FAILED`, `CANCELED`, `REJECTED`, and `INPUT_REQUIRED` when claude asks a question (§8.6); never `AUTH_REQUIRED` |
 | Persistence | in memory: a restart forgets tasks (§13) |
 
 ## 3. Transport: HTTP, headers, JSON-RPC envelope
@@ -238,7 +239,7 @@ type Role = "ROLE_USER" | "ROLE_AGENT";
 type TaskState =
   | "TASK_STATE_SUBMITTED"      // accepted, not started
   | "TASK_STATE_WORKING"        // running
-  | "TASK_STATE_INPUT_REQUIRED" // paused: the agent waits for the caller's answer   (not used here)
+  | "TASK_STATE_INPUT_REQUIRED" // paused: the agent waits for the caller's answer   (claude's questions, §8.6)
   | "TASK_STATE_AUTH_REQUIRED"  // paused: the agent waits for a sign-in             (not used here)
   | "TASK_STATE_COMPLETED"      // terminal: done
   | "TASK_STATE_FAILED"         // terminal: tried, and could not
@@ -327,6 +328,7 @@ What the message means depends on its IDs:
 | absent | absent | **a new task in a new conversation**; the agent assigns both IDs |
 | absent | set | **a new task in that conversation**: a follow-up. Same workspace; claude resumes the same Claude session. A `contextId` the caller makes up is kept as is |
 | a running task | (its context) | **a steer**: §8.5 |
+| an `INPUT_REQUIRED` task | (its context) | **the answer** to its question: §8.6 |
 | a finished task | | error `-32004` "Task ... is in terminal state" |
 
 **Example: blocking.** The answer comes when the run ends:
@@ -538,7 +540,8 @@ serve (`404` with a token; without one, `401`, because only `agent-card.json` is
 | `FAILED` | ✅ | claude: an error result (e.g. `error_max_turns`) or an exception. CLI: a nonzero exit, a missing program, a timeout |
 | `CANCELED` | ✅ | `CancelTask` stopped it |
 | `REJECTED` | ✅ | refused before anything ran: no text, or a `model`/`effort` that cannot be used (§9.1) |
-| `INPUT_REQUIRED`, `AUTH_REQUIRED` | (interrupted) | never here. Other agents may use them to pause and ask; the Gobi harness treats both as "blocked" and ends the ticket |
+| `INPUT_REQUIRED` | (interrupted) | claude asked a question (§8.6). The question is `status.message`; the answer is a `SendMessage` on the same task |
+| `AUTH_REQUIRED` | (interrupted) | never here. Other agents use it to wait for a sign-in |
 
 A terminal task does not change again (but see §13), and it takes no more messages (`-32004`). Continue the
 conversation with a **new task in the same context**.
@@ -552,8 +555,8 @@ caller may make up a `contextId` (e.g. its own thread ID); it is kept as is (and
 
 ### 8.3 Polling
 
-Send with `returnImmediately: true`, then call `GetTask` until `status.state` is terminal (or `INPUT_REQUIRED` /
-`AUTH_REQUIRED` from other agents). The Gobi harness waits 2 s before the first look and grows the wait ×1.5 up to
+Send with `returnImmediately: true`, then call `GetTask` until `status.state` is terminal, or `INPUT_REQUIRED` (a
+question, §8.6; `AUTH_REQUIRED` from other agents). The Gobi harness waits 2 s before the first look and grows the wait ×1.5 up to
 15 s. A harness-side deadline cancels the task with `CancelTask`. While polling, `status.message` is the latest progress
 note: a line of Claude's text, `"[ToolName]"` for each tool it starts, or a line a CLI printed.
 
@@ -588,7 +591,27 @@ What a steered task looks like when it ends:
   wants only the final answer should read the last artifact, or `status.message`. The Gobi harness joins all
   artifacts' text into its report.
 
-### 8.6 Cancellation
+### 8.6 Questions
+
+When Claude needs something only the user can tell it, it asks with Claude Code's `AskUserQuestion` tool. Nobody is
+there to answer it, so the run ends at the question, and the task becomes `INPUT_REQUIRED`:
+
+- `status.message` is the question as the user reads it, with its options (`"Which colour?\n   - Green: ...\n   -
+  Red"`). Its `metadata` has the run's cost (§9.2) and `questions`, the questions as Claude asked them
+  (`question`, `header`, `options` with `label` and `description`, `multiSelect`).
+- No artifact: the run has no result yet.
+
+The **answer** is a `SendMessage` with the task's `taskId` and the answer's text, like a steer (§8.5). The run starts
+again on the same task: it resumes the Claude session with the answer as the prompt, and the task goes on to
+`COMPLETED` (or asks again). A follow-up without the `taskId` (a new task in the context) also resumes the session, but
+leaves the question's task waiting.
+
+The Gobi harness reports an `INPUT_REQUIRED` task as **blocked**, with the question. The super agent asks the user,
+and the user's answer goes back as a steer on the same task. `allowed_tools` never lets `AskUserQuestion` run on its
+own, which would leave it unanswered; the CLI agents never ask (their programs have no question for the gateway to
+see), and say what they need in their answer instead.
+
+### 8.7 Cancellation
 
 `CancelTask` stops the running run. Claude Code's run is cancelled; a CLI's process group gets SIGTERM, then SIGKILL
 after 5 s. The task becomes `CANCELED` with the note "Stopped before it finished.". Canceling a finished task is an
@@ -730,10 +753,11 @@ This is the subset of A2A that `gobi-harness/engine/a2a.py` uses. An agent that 
    - `SendMessage` with `configuration.returnImmediately: true` → `{"task": Task}` (a bare `{"message": ...}` is taken
      as the whole, finished answer);
    - `GetTask` `{"id"}` → `Task`, polled every 2–15 s;
-   - `SendMessage` with `message.taskId` (a steer) on a running task;
+   - `SendMessage` with `message.taskId` (a steer) on a running task, or the user's answer on an `INPUT_REQUIRED` one;
    - `CancelTask` `{"id"}` on kill or deadline.
 5. **Auth failures as HTTP `401`/`403`**; a moved endpoint as `404` (the harness reads the card again, once).
-6. **End states:** `COMPLETED` is a success. `INPUT_REQUIRED` and `AUTH_REQUIRED` are "blocked". `CANCELED` is
+6. **End states:** `COMPLETED` is a success. `INPUT_REQUIRED` and `AUTH_REQUIRED` are "blocked": the ticket waits,
+   and the user's answer goes back as a steer on the task. `CANCELED` is
    "dropped". Anything else terminal is "failed". The report is the artifacts' text, or `status.message`'s if there are
    no artifacts.
 7. **Optional cost:** `cost_usd` and `usage` on the final status message's `metadata` (§9.2).

@@ -67,10 +67,11 @@ agents:
 | `max_turns` | none (**no limit**) | an optional cap on turns per run |
 | `system_prompt` | none | added to Claude Code's own |
 
-Nobody is there to approve a tool, so only `allowed_tools` run. With `permission_mode: bypassPermissions`, **every tool
-runs, Bash included, whatever `allowed_tools` says.** Use it only where Claude may do anything the account running the
-gateway can, such as a container or a dedicated machine. To switch it, edit `a2a.yaml` and restart the gateway
-(Ctrl-C, then `gobi-a2a`). The tunnel can stay up.
+Nobody is there to approve a tool, so only `allowed_tools` run. A question Claude asks with `AskUserQuestion` pauses
+the task as `INPUT_REQUIRED` until the answer comes on it ([protocol §8.6](protocol.md#86-questions)). With
+`permission_mode: bypassPermissions`, **every tool runs, Bash included, whatever `allowed_tools` says.** Use it only
+where Claude may do anything the account running the gateway can, such as a container or a dedicated machine. To
+switch it, edit `a2a.yaml` and restart the gateway (Ctrl-C, then `gobi-a2a`). The tunnel can stay up.
 
 Claude Code signs in as it does on this machine (`ANTHROPIC_API_KEY`, or its own login), and the run's cost is on that
 account.

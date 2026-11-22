@@ -55,6 +55,7 @@ UNATTENDED = ("You work unattended: the user handed you this task and is not wat
               "yourself.")
 ASKED = ("Your question went to the user, who is not here now. End your turn: do not guess the answer or go on "
          "without it. Their answer comes as the next message.")
+LINE = 64 * 1024 * 1024    # one CLI message: a Read of a screenshot carries the image, past the SDK's 1MB default
 
 # The allowed tools are meant to run without asking, so can_use_tool only ever sees the rest: say nothing about it.
 warnings.filterwarnings("ignore", category=CanUseToolShadowedWarning)
@@ -189,7 +190,7 @@ class ClaudeExecutor(AgentExecutor):
         return ClaudeAgentOptions(cwd=str(ws), model=model or self.s.model, allowed_tools=tools,
                                   permission_mode=self.s.permission_mode, max_turns=self.s.max_turns,
                                   resume=self.sessions.get(context_id), effort=effort or self.s.effort,
-                                  thinking=self.s.thinking, can_use_tool=permit(asked if asked is not None else []),
+                                  thinking=self.s.thinking, max_buffer_size=LINE, can_use_tool=permit(asked if asked is not None else []),
                                   system_prompt={"type": "preset", "preset": "claude_code", "append": append})
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:

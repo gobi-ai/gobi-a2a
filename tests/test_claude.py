@@ -57,6 +57,7 @@ async def test_a_task_is_one_claude_run_and_ends_with_its_result_and_cost(stack,
     assert o.cwd.startswith(str((tmp_path / "work" / "claude").resolve())) and o.permission_mode == "default"
     assert o.max_turns is None, "no turn limit unless a2a.yaml sets one"
     assert o.system_prompt["append"] == claude.UNATTENDED, "Claude knows nobody is watching, and how to ask"
+    assert o.max_buffer_size >= 32 * 1024 * 1024, "a message carrying an image (a Read screenshot) is far past 1MB"
 
 
 async def test_a_follow_up_in_the_same_context_continues_the_session(stack):

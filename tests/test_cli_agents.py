@@ -124,6 +124,34 @@ async def test_a_cancel_kills_the_process(tmp_path):
     await http.aclose()
 
 
+async def test_a_run_stopped_by_its_timeout_or_a_cancel_still_says_what_it_used(tmp_path):
+    client, http, app = await agent(tmp_path, "codex", timeout=1.5)
+    task = await asyncio.wait_for(final(client, "json hang"), 10)
+    assert task.status.state == TaskState.TASK_STATE_FAILED
+    assert MessageToDict(task.status.message.metadata) == {
+        "usage": {"input_tokens": 7, "cached_input_tokens": 3, "output_tokens": 1}, "session": "session-hang"}, \
+        "the usage as the agent counts it, with no exit code"
+    ex = app.state.agents["codex"].executor
+    sending = asyncio.create_task(final(client, "json hang"))
+    for _ in range(500):
+        if len(list((tmp_path / "work" / "codex").glob("*/started"))) == 2 and ex.running:
+            break
+        await asyncio.sleep(0.01)
+    (task_id,) = ex.running
+    await client.cancel_task(CancelTaskRequest(id=task_id))
+    task = await asyncio.wait_for(sending, 10)
+    assert task.status.state == TaskState.TASK_STATE_CANCELED
+    assert MessageToDict(task.status.message.metadata)["usage"]["input_tokens"] == 7
+    await http.aclose()
+
+
+async def test_a_run_that_used_nothing_ends_with_no_metadata(tmp_path):
+    client, http, _ = await agent(tmp_path, timeout=0.5)
+    task = await asyncio.wait_for(final(client, "hang"), 10)
+    assert task.status.state == TaskState.TASK_STATE_FAILED and MessageToDict(task.status.message.metadata) == {}
+    await http.aclose()
+
+
 def test_argv_placeholders():
     s = CLISettings(workdir=Path("."), command=["tool", "--message", "{prompt}"], model_args=["--model", "{model}"],
                     effort_args=["--effort", "{effort}"])

@@ -3,7 +3,8 @@
 Prints its working folder and its arguments, a line per word of the prompt, then "answer: <prompt>". The prompt
 (argv[1]) steers it: "fail" exits 3 with a message on stderr, "hang" sleeps until killed, "touch" writes a file in its
 folder and lists what is there, "slow" logs its begin and end to turns.log, 0.4s apart. "json" prints Codex-style JSON events instead: a session (its id names how many runs
-the folder has seen), and its arguments as the answer.
+the folder has seen), and its arguments as the answer. "json hang" prints a session and a turn's usage, then sleeps
+until killed.
 """
 import json
 import os
@@ -12,6 +13,12 @@ import time
 from pathlib import Path
 
 prompt, rest = sys.argv[1], sys.argv[2:]
+if prompt == "json hang":
+    for e in [{"type": "thread.started", "thread_id": "session-hang"},
+              {"type": "turn.completed", "usage": {"input_tokens": 7, "cached_input_tokens": 3, "output_tokens": 1}}]:
+        print(json.dumps(e), flush=True)
+    Path("started").write_text(str(os.getpid()))
+    time.sleep(60)
 if prompt == "json":
     runs = len(list(Path().glob("run-*"))) + 1
     Path(f"run-{runs}").write_text("x")

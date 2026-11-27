@@ -76,7 +76,24 @@ async def test_a_failed_run_is_a_failed_task(stack):
     script.error, script.raise_ = False, RuntimeError("CLI not found")
     task = await final(client, "again")
     assert task.status.state == TaskState.TASK_STATE_FAILED and "CLI not found" in str(MessageToDict(task.status))
-    assert MessageToDict(task.status.message.metadata) == {}, "no result, so no cost to report"
+    assert MessageToDict(task.status.message.metadata) == {
+        "usage": {"input_tokens": 3, "cache_read_input_tokens": 1000, "output_tokens": 40}, "model": "claude-opus-5-5"}, \
+        "no result, so no cost: the tokens its one API call used, counted once"
+
+
+async def test_a_run_with_no_api_call_ends_with_no_metadata(tmp_path):
+    script = Script()
+
+    async def nothing(*, prompt, options):
+        script.options.append(options)
+        raise RuntimeError("CLI not found")
+        yield                                     # an async generator that fails before its first message
+
+    app = create_app(config(tmp_path, {"claude": {"enabled": True}}), agent_kwargs={"claude": {"run": nothing}})
+    http = http_for(app)
+    task = await final(await client_for(http, "claude"), "go")
+    assert task.status.state == TaskState.TASK_STATE_FAILED and MessageToDict(task.status.message.metadata) == {}
+    await http.aclose()
 
 
 async def test_a_message_without_text_is_rejected(stack):
@@ -97,6 +114,10 @@ async def test_a_cancel_stops_the_run(stack):
     await client.cancel_task(CancelTaskRequest(id=task_id))
     task = await asyncio.wait_for(sending, 5)
     assert task.status.state == TaskState.TASK_STATE_CANCELED and not ex.running
+    spent = MessageToDict(task.status.message.metadata)
+    assert spent["usage"] == {"input_tokens": 3, "cache_read_input_tokens": 1000, "output_tokens": 40}, \
+        "what it used up to the cancel"
+    assert "cost_usd" not in spent, "Claude Code gives the cost only with a result"
 
 
 # ---- questions: AskUserQuestion is INPUT_REQUIRED, and the answer on the task goes on

@@ -221,34 +221,37 @@ class CLIExecutor(AgentExecutor):
             await up.reject(up.new_agent_message([new_text_part(f"Not run: {e}.")]))
             return
         await up.start_work()
-        run = asyncio.create_task(self._run(up, task.context_id, prompt, **asked))
+        spent: dict[str, Any] = {}                # what the run used, as far as it got: every end says it
+        run = asyncio.create_task(self._run(up, task.context_id, prompt, spent=spent, **asked))
         self.running[task.id] = run
+
+        def end(text: str):
+            return up.new_agent_message([new_text_part(text)], metadata=spent or None)
         try:
             await run
         except asyncio.CancelledError:
             if not run.cancelled():
                 raise
-            await up.cancel(up.new_agent_message([new_text_part("Stopped before it finished.")]))
+            await up.cancel(end("Stopped before it finished."))
         except FileNotFoundError:
-            await up.failed(up.new_agent_message([new_text_part(f"{self.s.command[0]!r} is not installed on the gateway's machine "
-                                                                f"(not found on PATH).")]))
+            await up.failed(end(f"{self.s.command[0]!r} is not installed on the gateway's machine (not found on PATH)."))
         except TimeoutError:
-            await up.failed(up.new_agent_message([new_text_part(f"{self.s.label} did not finish within {self.s.timeout:g}s.")]))
+            await up.failed(end(f"{self.s.label} did not finish within {self.s.timeout:g}s."))
         except Exception as e:
             log.exception("run failed")
-            await up.failed(up.new_agent_message([new_text_part(f"{self.s.label} failed: {type(e).__name__}: {e}")]))
+            await up.failed(end(f"{self.s.label} failed: {type(e).__name__}: {e}"))
         finally:
             self.running.pop(task.id, None)
 
     async def _run(self, up: TaskUpdater, context_id: str, prompt: str, model: str | None = None,
-                   effort: str | None = None, session: str | None = None) -> None:
-        """One run, after any run before it in the same context has ended."""
+                   effort: str | None = None, session: str | None = None, spent: dict[str, Any] | None = None) -> None:
+        """One run, after any run before it in the same context has ended. [spent] says what it used as it goes."""
         turn = self.turns.setdefault(context_id, asyncio.Lock())
         if turn.locked():
             await up.update_status(TaskState.TASK_STATE_WORKING, up.new_agent_message(
                 [new_text_part("Waiting for the task before it in this conversation to finish.")]))
         async with turn:
-            await self._run_now(up, context_id, prompt, model, effort, session)
+            await self._run_now(up, context_id, prompt, model, effort, session, {} if spent is None else spent)
 
     def _session(self, context_id: str, asked: str | None) -> tuple[str | None, str | None]:
         """(the session this run resumes, the one it runs with): a caller's, the context's, or a new one."""
@@ -265,7 +268,7 @@ class CLIExecutor(AgentExecutor):
         return resumed, resumed
 
     async def _run_now(self, up: TaskUpdater, context_id: str, prompt: str, model: str | None, effort: str | None,
-                       asked: str | None) -> None:
+                       asked: str | None, spent: dict[str, Any]) -> None:
         ws = workspace(self.s.workdir, context_id)
         resumed, session = self._session(context_id, asked)
         argv = self.s.argv(prompt, model, effort, session)
@@ -277,6 +280,8 @@ class CLIExecutor(AgentExecutor):
         size = 0
         err = bytearray()
         said = Event()                            # what the JSON events said, the last of each
+        chosen = {**({"model": model or self.s.model} if (model or self.s.model) else {}),
+                  **({"effort": effort or self.s.effort} if (effort or self.s.effort) else {})}
 
         async def note(text: str) -> None:
             await up.update_status(TaskState.TASK_STATE_WORKING, up.new_agent_message([new_text_part(text[:NOTE_CHARS])]))
@@ -291,6 +296,9 @@ class CLIExecutor(AgentExecutor):
                         said.session = self.sessions[context_id] = ev.session
                     said.text = ev.text if ev.text is not None else said.text
                     said.error, said.usage = ev.error or said.error, ev.usage or said.usage
+                    if said.usage:                # kept for an end with no exit code: a timeout, a cancel
+                        spent.update({**chosen, "usage": said.usage,
+                                      **({"session": said.session or session} if (said.session or session) else {})})
                     if ev.note and ev.note.strip():
                         await note(ev.note.strip())
                     continue
@@ -314,10 +322,9 @@ class CLIExecutor(AgentExecutor):
             await stop(proc)
             raise
         text = (said.text if said.text is not None else "".join(out)).strip()
-        spent = {"exit_code": code, **({"model": model or self.s.model} if (model or self.s.model) else {}),
-                 **({"effort": effort or self.s.effort} if (effort or self.s.effort) else {}),
-                 **({"usage": said.usage} if said.usage else {}),
-                 **({"session": said.session or session} if (said.session or session) else {})}
+        spent.clear()
+        spent.update({"exit_code": code, **chosen, **({"usage": said.usage} if said.usage else {}),
+                      **({"session": said.session or session} if (said.session or session) else {})})
         if code != 0:
             why = said.error or err.decode(errors="replace").strip() or text[-STDERR_TAIL:] or f"exit code {code}"
             if resumed and said.session is None and self.s.new_session is None:

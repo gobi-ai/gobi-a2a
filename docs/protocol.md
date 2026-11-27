@@ -529,7 +529,7 @@ serve (`404` with a token; without one, `401`, because only `agent-card.json` is
 │ COMPLETED │  │  FAILED  │          │ CANCELED │ ◀── CancelTask
 └───────────┘  └──────────┘          └──────────┘
  + artifact     the error,            "Stopped before it finished."
- + cost         + cost if any
+ + cost         + cost if any         + usage so far
 ```
 
 | State | Terminal | When the gateway's agents enter it |
@@ -640,17 +640,22 @@ the core spec. Other A2A clients may ignore them, and other agents may simply no
 
 ### 9.2 Out: what the run cost
 
-The final status message's `metadata` (on `COMPLETED`, and on `FAILED` when the run got as far as a result):
+The final status message's `metadata`, on every end the run got to: `COMPLETED`, `INPUT_REQUIRED`, `FAILED` and
+`CANCELED`. A run that ended with no result (cancelled, timed out, or the CLI failed) has no `cost_usd`, `turns` or
+`exit_code` to give, but still has the `usage` it saw up to there: for claude, the sum of each API call's usage from
+its assistant messages (subagents' included); for a CLI agent, the last usage its events reported. A run that used
+nothing before it ended has no metadata.
 
 | Key | Type | | Agent |
 |---|---|---|---|
-| `cost_usd` | number | the run's cost in US dollars | claude |
-| `usage` | object | token counts: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, ... | claude |
-| `turns` | number | Claude's turns in the run | claude |
-| `duration_ms` | number | wall time of the run | claude |
+| `cost_usd` | number | the run's cost in US dollars; only with a result | claude |
+| `usage` | object | claude: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, ... CLI agents: as the agent counts them (codex, e.g.: `input_tokens`, `cached_input_tokens`, `output_tokens`) | claude, CLI agents with JSON events |
+| `turns` | number | Claude's turns in the run; only with a result | claude |
+| `duration_ms` | number | wall time of the run; only with a result | claude |
 | `model` | string | the model that ran (the caller's choice or the default) | all, when set |
 | `effort` | string | the effort that ran; absent when Claude Code's default was used | all, when set |
-| `exit_code` | number | the program's exit status | CLI agents |
+| `exit_code` | number | the program's exit status; absent when it was stopped (timeout, cancel) | CLI agents |
+| `session` | string | the agent's session the run used | CLI agents with sessions |
 
 The status message stays on the task, so `GetTask` at any later time returns the same numbers. The Gobi harness adds
 `cost_usd` to the worker's spend. It counts `input_tokens` + `cache_read_input_tokens` + `cache_creation_input_tokens`

@@ -35,10 +35,16 @@ class Script:
 
     async def __call__(self, *, prompt, options):
         self.options.append(options)
-        yield AssistantMessage(content=[TextBlock("Looking at the files."), ToolUseBlock("t1", "Read", {"file_path": "a.txt"})], model="m")
+        n = len(self.options)                     # one API call, its blocks as two messages: the last counts the most
+        yield AssistantMessage(content=[TextBlock("Looking at the files.")], model="m", message_id=f"msg-{n}",
+                               usage={"input_tokens": 3, "cache_read_input_tokens": 1000, "output_tokens": 5})
+        yield AssistantMessage(content=[ToolUseBlock("t1", "Read", {"file_path": "a.txt"})], model="m", message_id=f"msg-{n}",
+                               usage={"input_tokens": 3, "cache_read_input_tokens": 1000, "output_tokens": 40})
         if self.ask:
             questions, self.ask = self.ask, None
-            yield AssistantMessage(content=[ToolUseBlock("t2", "AskUserQuestion", {"questions": questions})], model="m")
+            yield AssistantMessage(content=[ToolUseBlock("t2", "AskUserQuestion", {"questions": questions})], model="m",
+                                   message_id=f"msg-{n}-ask", usage={"input_tokens": 2, "cache_read_input_tokens": 1040,
+                                                                    "output_tokens": 20})
             said = await options.can_use_tool("AskUserQuestion", {"questions": questions}, ToolPermissionContext())
             self.told.append(said.message)
             prompt = "I need an answer first."

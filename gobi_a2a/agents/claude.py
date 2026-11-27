@@ -5,7 +5,8 @@ follow-up task remembers the one before it. A cancel stops the run.
 
 What the caller sees while it runs: a status message for each thing Claude says and each tool it starts. At the end:
 the result as an artifact, and the run's cost and token use as the metadata of the final status message, which stays
-on the task, so the caller can count it however it reads the task.
+on the task, so the caller can count it however it reads the task. A run that ends with no result (cancelled, or the
+CLI failed) has no cost to give, but its status message still says the tokens its API calls used up to there.
 
 When Claude needs something only the user can tell it, it asks with its AskUserQuestion tool. Nobody is there to
 answer, so the run ends there and the task is INPUT_REQUIRED, with the question as its status message (and the
@@ -55,6 +56,7 @@ UNATTENDED = ("You work unattended: the user handed you this task and is not wat
               "yourself.")
 ASKED = ("Your question went to the user, who is not here now. End your turn: do not guess the answer or go on "
          "without it. Their answer comes as the next message.")
+COUNTED = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens")
 LINE = 64 * 1024 * 1024    # one CLI message: a Read of a screenshot carries the image, past the SDK's 1MB default
 
 # The allowed tools are meant to run without asking, so can_use_tool only ever sees the rest: say nothing about it.
@@ -115,6 +117,21 @@ class Config(AgentConfig):
         if isinstance(v, bool) or not isinstance(v, int) or v < 0:
             raise ValueError(f"{v!r} is not a positive number of turns (leave it out for no limit)")
         return v
+
+
+@dataclass
+class Calls:
+    """The usage of each API call a run made so far, from its assistant messages: the CLI sends one call's blocks as
+    several messages with the same id, and the last of them counts the most. For an end with no result to read it from."""
+    seen: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def see(self, m: AssistantMessage) -> None:
+        if isinstance(m.usage, dict):
+            self.seen[m.message_id or m.uuid or f"call-{len(self.seen)}"] = m.usage
+
+    def usage(self) -> dict[str, int]:
+        return {k: sum(int(u.get(k) or 0) for u in self.seen.values()) for k in COUNTED
+                if any(k in u for u in self.seen.values())}
 
 
 def thinking_from(value: Any) -> dict | None:
@@ -210,27 +227,37 @@ class ClaudeExecutor(AgentExecutor):
             await up.reject(up.new_agent_message([new_text_part(f"Not run: {e}.")]))
             return
         await up.start_work()
-        run = asyncio.create_task(self._run(up, task.context_id, prompt, **asked))
+        spent: dict[str, Any] = {}                # what the run used, as far as it got: every end says it
+        run = asyncio.create_task(self._run(up, task.context_id, prompt, spent=spent, **asked))
         self.running[task.id] = run
         try:
             await run
         except asyncio.CancelledError:
             if not run.cancelled():
                 raise                             # this request itself is going away
-            await up.cancel(up.new_agent_message([new_text_part("Stopped before it finished.")]))
+            await up.cancel(up.new_agent_message([new_text_part("Stopped before it finished.")], metadata=spent or None))
         except Exception as e:                    # the CLI could not start, the API failed: say so, as the task's end
             log.exception("run failed")
-            await up.failed(up.new_agent_message([new_text_part(f"Claude Code failed: {type(e).__name__}: {e}")]))
+            await up.failed(up.new_agent_message([new_text_part(f"Claude Code failed: {type(e).__name__}: {e}")],
+                                                 metadata=spent or None))
         finally:
             self.running.pop(task.id, None)
 
     async def _run(self, up: TaskUpdater, context_id: str, prompt: str, model: str | None = None,
-                   effort: str | None = None) -> None:
+                   effort: str | None = None, spent: dict[str, Any] | None = None) -> None:
+        """One run. [spent] says what it used as it goes: the tokens of each call, then the result's cost and usage."""
+        spent = {} if spent is None else spent
         asked: list[dict[str, Any]] = []
         options = self.options(context_id, model, effort, asked)
         log.info("run in %s: model=%s effort=%s", context_id, options.model, options.effort or "(Claude Code default)")
+        chosen = {"model": options.model, **({"effort": options.effort} if options.effort else {})}
+        calls = Calls()
         result: ResultMessage | None = None
         async for m in self.run(prompt=prompt, options=options):
+            if isinstance(m, AssistantMessage):   # a subagent's calls cost too
+                calls.see(m)
+                if calls.seen:
+                    spent.update({"usage": calls.usage(), **chosen})
             if isinstance(m, AssistantMessage) and not getattr(m, "parent_tool_use_id", None):
                 for b in m.content:
                     if isinstance(b, TextBlock) and b.text.strip():
@@ -246,9 +273,9 @@ class ClaudeExecutor(AgentExecutor):
             raise RuntimeError("Claude Code ended without a result")
         if result.session_id:
             self.sessions[context_id] = result.session_id
-        spent = {"cost_usd": result.total_cost_usd, "usage": result.usage or {}, "turns": result.num_turns,
-                 "duration_ms": result.duration_ms, "model": options.model,
-                 **({"effort": options.effort} if options.effort else {})}
+        spent.clear()
+        spent.update({"cost_usd": result.total_cost_usd, "usage": result.usage or {}, "turns": result.num_turns,
+                      "duration_ms": result.duration_ms, **chosen})
         text = (result.result or "").strip()
         if result.is_error or result.subtype != "success":
             why = text or "; ".join(str(e) for e in (getattr(result, "errors", None) or [])) or result.subtype
